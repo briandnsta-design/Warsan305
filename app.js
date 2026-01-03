@@ -19,6 +19,7 @@ document.addEventListener('DOMContentLoaded', function() {
     let sharedExpenses = JSON.parse(localStorage.getItem('warsan305_sharedExpenses')) || [];
     let personalDebts = JSON.parse(localStorage.getItem('warsan305_personalDebts')) || [];
     let settlements = [];
+    let selectedRoommates = new Set(ROOMMATE_IDS); // Default: all selected
 
     // ============ DOM ELEMENTS ============
     // Shared Expense Elements
@@ -30,10 +31,12 @@ document.addEventListener('DOMContentLoaded', function() {
     const paidBy = document.getElementById('paid-by');
     const addExpenseBtn = document.getElementById('add-expense-btn');
     
-    // Roommate Checkboxes Elements
-    const roommateCheckboxesContainer = document.getElementById('roommate-checkboxes');
-    const selectAllCheckbox = document.getElementById('select-all-checkbox');
+    // Roommate Quick Selection Elements
+    const roommateTagsContainer = document.getElementById('roommate-tags-container');
+    const selectAllBtn = document.getElementById('select-all-btn');
+    const clearAllBtn = document.getElementById('clear-all-btn');
     const includeExcludeSection = document.getElementById('include-exclude-section');
+    const selectedCountEl = document.getElementById('selected-count');
 
     // Personal Debt Elements
     const debtFrom = document.getElementById('debt-from');
@@ -94,8 +97,8 @@ document.addEventListener('DOMContentLoaded', function() {
         // Set today's date
         setTodayDate();
 
-        // Setup roommate checkboxes
-        setupRoommateCheckboxes();
+        // Setup roommate tags
+        setupRoommateTags();
 
         // Load and render data
         renderExpenses();
@@ -118,34 +121,71 @@ document.addEventListener('DOMContentLoaded', function() {
         debtDate.value = today;
     }
 
-    function setupRoommateCheckboxes() {
-        if (!roommateCheckboxesContainer) return;
+    function setupRoommateTags() {
+        if (!roommateTagsContainer) return;
 
         // Clear container
-        roommateCheckboxesContainer.innerHTML = '';
+        roommateTagsContainer.innerHTML = '';
 
-        // Create checkboxes for each roommate
+        // Create tags for each roommate
         ROOMMATE_IDS.forEach(id => {
-            const checkboxDiv = document.createElement('div');
-            checkboxDiv.className = 'checkbox-item';
-            checkboxDiv.innerHTML = `
-                <input type="checkbox" id="checkbox-${id}" value="${id}" checked>
-                <label for="checkbox-${id}">${ROOMMATES[id]}</label>
+            const tag = document.createElement('div');
+            tag.className = `roommate-tag ${selectedRoommates.has(id) ? 'selected' : ''}`;
+            tag.dataset.id = id;
+            tag.innerHTML = `
+                <span class="tag-avatar">${ROOMMATES[id].charAt(0)}</span>
+                <span class="tag-name">${ROOMMATES[id]}</span>
+                <span class="tag-checkmark">✓</span>
             `;
-            roommateCheckboxesContainer.appendChild(checkboxDiv);
+            roommateTagsContainer.appendChild(tag);
         });
 
-        // Setup select all checkbox
-        if (selectAllCheckbox) {
-            selectAllCheckbox.addEventListener('change', function() {
-                const isChecked = this.checked;
-                ROOMMATE_IDS.forEach(id => {
-                    const checkbox = document.getElementById(`checkbox-${id}`);
-                    if (checkbox) {
-                        checkbox.checked = isChecked;
-                    }
-                });
+        updateSelectedCount();
+    }
+
+    function updateSelectedCount() {
+        if (selectedCountEl) {
+            selectedCountEl.textContent = `${selectedRoommates.size}/${ROOMMATE_IDS.length}`;
+        }
+    }
+
+    function toggleRoommateSelection(id) {
+        if (selectedRoommates.has(id)) {
+            selectedRoommates.delete(id);
+        } else {
+            selectedRoommates.add(id);
+        }
+        
+        const tag = document.querySelector(`.roommate-tag[data-id="${id}"]`);
+        if (tag) {
+            tag.classList.toggle('selected', selectedRoommates.has(id));
+        }
+        
+        updateSelectedCount();
+        updatePaidByOptions();
+    }
+
+    function updatePaidByOptions() {
+        // Filter paid by dropdown to only include selected roommates
+        if (paidBy) {
+            const currentValue = paidBy.value;
+            paidBy.innerHTML = '';
+            
+            ROOMMATE_IDS.forEach(id => {
+                if (selectedRoommates.has(id)) {
+                    const option = document.createElement('option');
+                    option.value = id;
+                    option.textContent = ROOMMATES[id];
+                    paidBy.appendChild(option);
+                }
             });
+            
+            // Try to maintain the current selection, or select the first available
+            if (selectedRoommates.has(currentValue)) {
+                paidBy.value = currentValue;
+            } else if (selectedRoommates.size > 0) {
+                paidBy.value = Array.from(selectedRoommates)[0];
+            }
         }
     }
 
@@ -159,6 +199,41 @@ document.addEventListener('DOMContentLoaded', function() {
         debtTodayBtn.addEventListener('click', () => {
             debtDate.value = new Date().toISOString().split('T')[0];
         });
+
+        // Roommate selection
+        if (roommateTagsContainer) {
+            roommateTagsContainer.addEventListener('click', (e) => {
+                const tag = e.target.closest('.roommate-tag');
+                if (tag) {
+                    const id = tag.dataset.id;
+                    toggleRoommateSelection(id);
+                }
+            });
+        }
+
+        // Select All button
+        if (selectAllBtn) {
+            selectAllBtn.addEventListener('click', () => {
+                ROOMMATE_IDS.forEach(id => selectedRoommates.add(id));
+                document.querySelectorAll('.roommate-tag').forEach(tag => {
+                    tag.classList.add('selected');
+                });
+                updateSelectedCount();
+                updatePaidByOptions();
+            });
+        }
+
+        // Clear All button
+        if (clearAllBtn) {
+            clearAllBtn.addEventListener('click', () => {
+                selectedRoommates.clear();
+                document.querySelectorAll('.roommate-tag').forEach(tag => {
+                    tag.classList.remove('selected');
+                });
+                updateSelectedCount();
+                updatePaidByOptions();
+            });
+        }
 
         // Add Expense button
         addExpenseBtn.addEventListener('click', addSharedExpense);
@@ -197,6 +272,15 @@ document.addEventListener('DOMContentLoaded', function() {
             if (e.key === 'Enter') addPersonalDebt();
         });
 
+        // Auto-select the payer when typing expense name
+        expenseName.addEventListener('focus', () => {
+            if (selectedRoommates.size === 0) {
+                ROOMMATE_IDS.forEach(id => selectedRoommates.add(id));
+                setupRoommateTags();
+                updatePaidByOptions();
+            }
+        });
+
         // Backward compatibility for realtime.js
         setupRealtimeCompatibility();
     }
@@ -217,6 +301,7 @@ document.addEventListener('DOMContentLoaded', function() {
         window.personalDebts = personalDebts;
         window.itemToDelete = itemToDelete;
         window.itemTypeToDelete = deleteType;
+        window.selectedRoommates = selectedRoommates;
     }
 
     // ============ TAB MANAGEMENT ============
@@ -247,14 +332,8 @@ document.addEventListener('DOMContentLoaded', function() {
         const date = invoiceDate.value;
         const paidByValue = paidBy.value;
 
-        // Get selected roommates
-        const selectedRoommates = [];
-        ROOMMATE_IDS.forEach(id => {
-            const checkbox = document.getElementById(`checkbox-${id}`);
-            if (checkbox && checkbox.checked) {
-                selectedRoommates.push(id);
-            }
-        });
+        // Convert selectedRoommates Set to array
+        const selectedRoommatesArray = Array.from(selectedRoommates);
 
         // Validation
         if (!name) {
@@ -275,12 +354,12 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
 
-        if (selectedRoommates.length === 0) {
+        if (selectedRoommatesArray.length === 0) {
             alert('Please select at least one roommate to include in this expense');
             return;
         }
 
-        if (!selectedRoommates.includes(paidByValue)) {
+        if (!selectedRoommatesArray.includes(paidByValue)) {
             alert('The person who paid must be included in the expense');
             return;
         }
@@ -294,8 +373,8 @@ document.addEventListener('DOMContentLoaded', function() {
             date: date,
             paidBy: paidByValue,
             paidByName: ROOMMATES[paidByValue],
-            includedPersons: selectedRoommates,
-            sharePerPerson: amount / selectedRoommates.length,
+            includedPersons: selectedRoommatesArray,
+            sharePerPerson: amount / selectedRoommatesArray.length,
             createdAt: new Date().toISOString()
         };
 
@@ -312,17 +391,12 @@ document.addEventListener('DOMContentLoaded', function() {
         // Reset form
         expenseName.value = '';
         expenseAmount.value = '';
-        
-        // Reset checkboxes to all checked
-        ROOMMATE_IDS.forEach(id => {
-            const checkbox = document.getElementById(`checkbox-${id}`);
-            if (checkbox) {
-                checkbox.checked = true;
-            }
-        });
-        if (selectAllCheckbox) {
-            selectAllCheckbox.checked = true;
-        }
+        expenseName.focus();
+
+        // Reset roommate selection to all
+        selectedRoommates = new Set(ROOMMATE_IDS);
+        setupRoommateTags();
+        updatePaidByOptions();
 
         // Show success message
         showAutoSaveIndicator('Expense added successfully!');
@@ -368,18 +442,17 @@ document.addEventListener('DOMContentLoaded', function() {
                 year: 'numeric'
             });
 
-            // Get included persons names
-            const includedNames = expense.includedPersons ? 
-                expense.includedPersons.map(id => ROOMMATES[id]).join(', ') : 
-                ROOMMATE_NAMES.join(', ');
-
-            // Get share per person
-            const shareCount = expense.includedPersons ? expense.includedPersons.length : 7;
-            const shareAmount = expense.amount / shareCount;
+            // Create included persons badges
+            const includedBadges = (expense.includedPersons || ROOMMATE_IDS)
+                .map(id => `<span class="included-badge">${ROOMMATES[id].charAt(0)}</span>`)
+                .join('');
 
             expenseItem.innerHTML = `
                 <div class="expense-details">
-                    <div class="expense-title">${expense.name}</div>
+                    <div class="expense-title-row">
+                        <div class="expense-title">${expense.name}</div>
+                        <div class="expense-included-badges">${includedBadges}</div>
+                    </div>
                     <div class="expense-meta">
                         <span>${formattedDate}</span>
                         <span>•</span>
@@ -387,13 +460,11 @@ document.addEventListener('DOMContentLoaded', function() {
                         <span>•</span>
                         <span>Paid by ${expense.paidByName}</span>
                         <span>•</span>
-                        <span>Split among ${shareCount} people</span>
+                        <span>${expense.includedPersons ? expense.includedPersons.length : 7} people</span>
                     </div>
-                    <div class="expense-included">
-                        <small>Included: ${includedNames}</small>
-                    </div>
-                    <div class="expense-share">
-                        <small>Share per person: $${shareAmount.toFixed(2)}</small>
+                    <div class="expense-share-row">
+                        <div class="expense-share">$${expense.sharePerPerson ? expense.sharePerPerson.toFixed(2) : (expense.amount / 7).toFixed(2)} each</div>
+                        <div class="expense-split-note">Split ${expense.includedPersons ? 'among selected' : 'equally'}</div>
                     </div>
                 </div>
                 <div class="expense-amount-container">
@@ -479,6 +550,7 @@ document.addEventListener('DOMContentLoaded', function() {
         debtDescription.value = '';
         debtAmount.value = '';
         debtNotes.value = '';
+        debtDescription.focus();
 
         // Show success message
         showAutoSaveIndicator('Personal debt added successfully!');
@@ -530,12 +602,15 @@ document.addEventListener('DOMContentLoaded', function() {
 
             debtItem.innerHTML = `
                 <div class="debt-details">
-                    <div class="debt-title">${debt.description}</div>
+                    <div class="debt-title-row">
+                        <div class="debt-title">${debt.description}</div>
+                        ${statusBadge}
+                    </div>
                     <div class="debt-meta">
                         <span>${formattedDate}</span>
                         <span>•</span>
-                        <span>${debt.fromName} → ${debt.toName}</span>
-                        ${debt.notes ? '<span>•</span><span>Note: ' + debt.notes + '</span>' : ''}
+                        <span><span class="debtor">${debt.fromName}</span> → <span class="creditor">${debt.toName}</span></span>
+                        ${debt.notes ? '<span>•</span><span class="debt-notes">Note: ' + debt.notes + '</span>' : ''}
                     </div>
                 </div>
                 <div class="debt-amount-container">
@@ -954,6 +1029,7 @@ document.addEventListener('DOMContentLoaded', function() {
         sharedExpenses = [];
         personalDebts = [];
         settlements = [];
+        selectedRoommates = new Set(ROOMMATE_IDS);
 
         // Clear localStorage
         localStorage.removeItem('warsan305_sharedExpenses');
@@ -963,19 +1039,8 @@ document.addEventListener('DOMContentLoaded', function() {
         renderExpenses();
         renderPersonalDebts();
         calculateBalances();
-
-        // Reset checkboxes
-        if (roommateCheckboxesContainer) {
-            ROOMMATE_IDS.forEach(id => {
-                const checkbox = document.getElementById(`checkbox-${id}`);
-                if (checkbox) {
-                    checkbox.checked = true;
-                }
-            });
-        }
-        if (selectAllCheckbox) {
-            selectAllCheckbox.checked = true;
-        }
+        setupRoommateTags();
+        updatePaidByOptions();
 
         // Clear settlement display
         if (settlementContainer) {
@@ -1065,6 +1130,7 @@ document.addEventListener('DOMContentLoaded', function() {
             itemToDelete: itemToDelete,
             deleteType: deleteType,
             ROOMMATES: ROOMMATES,
+            selectedRoommates: selectedRoommates,
 
             // Functions
             addSharedExpense: addSharedExpense,
@@ -1080,7 +1146,9 @@ document.addEventListener('DOMContentLoaded', function() {
             renderExpenses: renderExpenses,
             renderPersonalDebts: renderPersonalDebts,
             calculateBalances: calculateBalances,
-            renderSettlements: renderSettlements
+            renderSettlements: renderSettlements,
+            setupRoommateTags: setupRoommateTags,
+            updatePaidByOptions: updatePaidByOptions
         };
     }
 
