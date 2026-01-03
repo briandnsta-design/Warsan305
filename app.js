@@ -1,4 +1,4 @@
-// app.js - Warsan 305 Bill Splitter Core Logic (Fixed Version)
+// app.js - Warsan 305 Bill Splitter Core Logic (Updated with Exclusion Functionality)
 
 document.addEventListener('DOMContentLoaded', function() {
     // ============ CONFIGURATION ============
@@ -29,6 +29,12 @@ document.addEventListener('DOMContentLoaded', function() {
     const todayBtn = document.getElementById('today-btn');
     const paidBy = document.getElementById('paid-by');
     const addExpenseBtn = document.getElementById('add-expense-btn');
+    
+    // Split Options Elements
+    const splitCheckboxes = document.querySelectorAll('.split-option input[type="checkbox"]');
+    const selectAllBtn = document.getElementById('select-all-btn');
+    const deselectAllBtn = document.getElementById('deselect-all-btn');
+    const splitCount = document.getElementById('split-count');
     
     // Personal Debt Elements
     const debtFrom = document.getElementById('debt-from');
@@ -90,6 +96,9 @@ document.addEventListener('DOMContentLoaded', function() {
         // Set today's date
         setTodayDate();
         
+        // Update split count
+        updateSplitCount();
+        
         // Load and render data
         renderExpenses();
         renderPersonalDebts();
@@ -106,6 +115,11 @@ document.addEventListener('DOMContentLoaded', function() {
         const today = new Date().toISOString().split('T')[0];
         invoiceDate.value = today;
         debtDate.value = today;
+    }
+    
+    function updateSplitCount() {
+        const selectedCount = Array.from(splitCheckboxes).filter(cb => cb.checked).length;
+        splitCount.textContent = `${selectedCount} selected`;
     }
     
     // ============ EVENT LISTENERS ============
@@ -147,6 +161,27 @@ document.addEventListener('DOMContentLoaded', function() {
             });
         });
         
+        // Split option checkboxes
+        splitCheckboxes.forEach(checkbox => {
+            checkbox.addEventListener('change', updateSplitCount);
+        });
+        
+        // Select All button
+        selectAllBtn.addEventListener('click', () => {
+            splitCheckboxes.forEach(checkbox => {
+                checkbox.checked = true;
+            });
+            updateSplitCount();
+        });
+        
+        // Deselect All button
+        deselectAllBtn.addEventListener('click', () => {
+            splitCheckboxes.forEach(checkbox => {
+                checkbox.checked = false;
+            });
+            updateSplitCount();
+        });
+        
         // Form submission on Enter key
         expenseName.addEventListener('keypress', (e) => {
             if (e.key === 'Enter') addSharedExpense();
@@ -185,6 +220,14 @@ document.addEventListener('DOMContentLoaded', function() {
         const date = invoiceDate.value;
         const paidByValue = paidBy.value;
         
+        // Get selected roommates for splitting
+        const selectedRoommates = [];
+        splitCheckboxes.forEach(checkbox => {
+            if (checkbox.checked) {
+                selectedRoommates.push(checkbox.value);
+            }
+        });
+        
         // Validation
         if (!name) {
             alert('Please enter an expense name');
@@ -204,6 +247,22 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
         
+        if (selectedRoommates.length === 0) {
+            alert('Please select at least one roommate to split the expense with');
+            return;
+        }
+        
+        // Ensure the payer is included in the split (they paid for it, so they should be included)
+        if (!selectedRoommates.includes(paidByValue)) {
+            selectedRoommates.push(paidByValue);
+            // Check the payer's checkbox in the UI
+            const payerCheckbox = document.querySelector(`#split-${paidByValue}`);
+            if (payerCheckbox) {
+                payerCheckbox.checked = true;
+            }
+            updateSplitCount();
+        }
+        
         // Create expense object
         const expense = {
             id: Date.now(),
@@ -213,6 +272,7 @@ document.addEventListener('DOMContentLoaded', function() {
             date: date,
             paidBy: paidByValue,
             paidByName: ROOMMATES[paidByValue],
+            splitBetween: selectedRoommates,
             createdAt: new Date().toISOString()
         };
         
@@ -234,7 +294,7 @@ document.addEventListener('DOMContentLoaded', function() {
         showAutoSaveIndicator('Expense added successfully!');
         
         // Add to activity feed
-        addActivity(`Added shared expense: ${name} ($${amount.toFixed(2)})`);
+        addActivity(`Added shared expense: ${name} ($${amount.toFixed(2)}) split between ${selectedRoommates.length} roommates`);
     }
     
     function renderExpenses() {
@@ -259,21 +319,43 @@ document.addEventListener('DOMContentLoaded', function() {
             expenseItem.className = 'expense-item';
             expenseItem.dataset.id = expense.id;
             
-            const formattedDate = new Date(expense.date).toLocaleDateString('en-US', {
+            // Format dates
+            const invoiceDate = new Date(expense.date);
+            const entryDate = new Date(expense.createdAt);
+            
+            const formattedInvoiceDate = invoiceDate.toLocaleDateString('en-US', {
                 month: 'short',
                 day: 'numeric',
                 year: 'numeric'
             });
             
+            const formattedEntryDate = entryDate.toLocaleDateString('en-US', {
+                month: 'short',
+                day: 'numeric',
+                year: 'numeric'
+            });
+            
+            const formattedEntryTime = entryDate.toLocaleTimeString('en-US', {
+                hour: '2-digit',
+                minute: '2-digit'
+            });
+            
+            // Get names of who the expense is split between
+            const splitNames = expense.splitBetween.map(id => ROOMMATES[id]).join(', ');
+            
             expenseItem.innerHTML = `
                 <div class="expense-details">
                     <div class="expense-title">${expense.name}</div>
                     <div class="expense-meta">
-                        <span>${formattedDate}</span>
+                        <span><i class="far fa-calendar-alt"></i> Invoice: ${formattedInvoiceDate}</span>
+                        <span>•</span>
+                        <span><i class="far fa-clock"></i> Entered: ${formattedEntryDate} at ${formattedEntryTime}</span>
                         <span>•</span>
                         <span>${expense.type}</span>
                         <span>•</span>
                         <span>Paid by ${expense.paidByName}</span>
+                        <span>•</span>
+                        <span title="Split between: ${splitNames}">Split: ${expense.splitBetween.length}/${ROOMMATE_IDS.length}</span>
                     </div>
                 </div>
                 <div class="expense-amount-container">
@@ -441,7 +523,7 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
     
-    // ============ BALANCE CALCULATION ============
+    // ============ BALANCE CALCULATION (with exclusion) ============
     function calculateBalances() {
         // Reset all balances to 0
         const balances = {};
@@ -449,19 +531,20 @@ document.addEventListener('DOMContentLoaded', function() {
             balances[id] = 0;
         });
         
-        // Calculate from shared expenses
+        // Calculate from shared expenses (with exclusion)
         sharedExpenses.forEach(expense => {
             const amount = expense.amount;
             const paidBy = expense.paidBy;
+            const splitBetween = expense.splitBetween;
             
-            // Each person owes 1/7 of the expense
-            const sharePerPerson = amount / 7;
+            // Calculate share per included person
+            const sharePerPerson = amount / splitBetween.length;
             
             // The payer paid the full amount, so they get credited
             balances[paidBy] += amount;
             
-            // Everyone (including payer) owes their share
-            ROOMMATE_IDS.forEach(id => {
+            // Each included person owes their share
+            splitBetween.forEach(id => {
                 balances[id] -= sharePerPerson;
             });
         });
@@ -495,16 +578,16 @@ document.addEventListener('DOMContentLoaded', function() {
             .filter(debt => debt.status === 'pending')
             .reduce((sum, debt) => sum + debt.amount, 0);
         
-        // Calculate share per person (from shared expenses only)
-        const sharePerPerson = sharedExpenses.length > 0 ? totalExpenses / 7 : 0;
+        // Calculate average share per person (from shared expenses only)
+        const averageSharePerPerson = sharedExpenses.length > 0 ? totalExpenses / 7 : 0;
         
         // Update UI
         totalExpensesEl.textContent = `$${totalExpenses.toFixed(2)}`;
         totalPersonalDebtsEl.textContent = `$${totalPersonalDebts.toFixed(2)}`;
-        sharePerPersonEl.textContent = `$${sharePerPerson.toFixed(2)}`;
+        sharePerPersonEl.textContent = `$${averageSharePerPerson.toFixed(2)}`;
     }
     
-    // ============ SETTLEMENT CALCULATION ============
+    // ============ SETTLEMENT CALCULATION (with exclusion) ============
     function calculateSettlements() {
         // First calculate balances
         const balances = {};
@@ -512,15 +595,16 @@ document.addEventListener('DOMContentLoaded', function() {
             balances[id] = 0;
         });
         
-        // Calculate from shared expenses
+        // Calculate from shared expenses (with exclusion)
         sharedExpenses.forEach(expense => {
             const amount = expense.amount;
             const paidBy = expense.paidBy;
+            const splitBetween = expense.splitBetween;
             
-            const sharePerPerson = amount / 7;
+            const sharePerPerson = amount / splitBetween.length;
             
             balances[paidBy] += amount;
-            ROOMMATE_IDS.forEach(id => {
+            splitBetween.forEach(id => {
                 balances[id] -= sharePerPerson;
             });
         });
@@ -799,6 +883,12 @@ document.addEventListener('DOMContentLoaded', function() {
         
         // Hide circular debt section
         circularDebtSection.style.display = 'none';
+        
+        // Reset split checkboxes to all selected
+        splitCheckboxes.forEach(checkbox => {
+            checkbox.checked = true;
+        });
+        updateSplitCount();
         
         // Hide confirmation
         hideResetConfirmation();
