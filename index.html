@@ -380,13 +380,26 @@
             font-size: 1rem;
         }
 
+        .expense-title, .debt-title {
+            font-weight: 600;
+            margin-bottom: 4px;
+            font-size: 1rem;
+        }
+
         .expense-meta, .debt-meta {
             display: flex;
-            flex-direction: column;
-            gap: 3px;
-            margin-top: 5px;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-top: 6px;
             font-size: 0.85rem;
             color: #bdc3c7;
+            align-items: center;
+        }
+
+        .expense-meta i, .debt-meta i {
+            margin-right: 4px;
+            opacity: 0.8;
+            font-size: 0.8rem;
         }
 
         .no-expenses, .no-debts {
@@ -1109,6 +1122,14 @@
 
             .expense-meta, .debt-meta {
                 font-size: 0.8rem;
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 4px;
+            }
+            
+            .expense-meta span:not(:first-child):before,
+            .debt-meta span:not(:first-child):before {
+                content: '';
             }
 
             .date-input-group {
@@ -1290,6 +1311,16 @@
             .settlement-summary {
                 padding: 12px;
                 font-size: 0.85rem;
+            }
+            
+            .expense-meta span, .debt-meta span {
+                display: block;
+                margin-bottom: 3px;
+            }
+            
+            .expense-meta span:before,
+            .debt-meta span:before {
+                content: '' !important;
             }
 
             /* Real-time elements extra small adjustments */
