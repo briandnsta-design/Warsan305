@@ -1,522 +1,365 @@
-// realtime.js - Simplified and fixed version
-class RealTimeCollaboration {
-    constructor() {
-        this.socket = null;
-        this.currentUser = null;
-        this.roomId = 'warsan305';
-        this.isConnected = false;
-        this.typingTimeout = null;
+// app.js - Warsan 305 Bill Splitter Core Logic (Fixed Version with Real-time)
 
-        this.init();
+document.addEventListener('DOMContentLoaded', function() {
+    // ============ CONFIGURATION ============
+    const ROOMMATES = {
+        person1: 'Brian',
+        person2: 'Tessa',
+        person3: 'Robert',
+        person4: 'Hershey',
+        person5: 'Wilson',
+        person6: 'Joselle',
+        person7: 'Chona'
+    };
+
+    const ROOMMATE_IDS = Object.keys(ROOMMATES);
+    const ROOMMATE_NAMES = Object.values(ROOMMATES);
+
+    // ============ STATE MANAGEMENT ============
+    let sharedExpenses = JSON.parse(localStorage.getItem('warsan305_sharedExpenses')) || [];
+    let personalDebts = JSON.parse(localStorage.getItem('warsan305_personalDebts')) || [];
+    let settlements = [];
+    let selectedRoommates = new Set(ROOMMATE_IDS); // Default: all selected
+
+    // ============ DOM ELEMENTS ============
+    // Shared Expense Elements
+    const expenseType = document.getElementById('expense-type');
+    const expenseName = document.getElementById('expense-name');
+    const expenseAmount = document.getElementById('expense-amount');
+    const invoiceDate = document.getElementById('invoice-date');
+    const todayBtn = document.getElementById('today-btn');
+    const paidBy = document.getElementById('paid-by');
+    const addExpenseBtn = document.getElementById('add-expense-btn');
+    
+    // Roommate Quick Selection Elements
+    const roommateTagsContainer = document.getElementById('roommate-tags-container');
+    const selectAllBtn = document.getElementById('select-all-btn');
+    const clearAllBtn = document.getElementById('clear-all-btn');
+    const includeExcludeSection = document.getElementById('include-exclude-section');
+    const selectedCountEl = document.getElementById('selected-count');
+
+    // Personal Debt Elements
+    const debtFrom = document.getElementById('debt-from');
+    const debtTo = document.getElementById('debt-to');
+    const debtAmount = document.getElementById('debt-amount');
+    const debtDescription = document.getElementById('debt-description');
+    const debtDate = document.getElementById('debt-date');
+    const debtTodayBtn = document.getElementById('debt-today-btn');
+    const debtNotes = document.getElementById('debt-notes');
+    const addDebtBtn = document.getElementById('add-debt-btn');
+
+    // Display Elements
+    const expenseList = document.getElementById('expense-list');
+    const debtList = document.getElementById('debt-list');
+    const settlementContainer = document.getElementById('settlement-container');
+    const circularDebtSection = document.getElementById('circular-debt-section');
+    const debtMatrixContainer = document.getElementById('debt-matrix-container');
+
+    // Balance Elements
+    const balanceElements = {
+        person1: document.getElementById('balance1'),
+        person2: document.getElementById('balance2'),
+        person3: document.getElementById('balance3'),
+        person4: document.getElementById('balance4'),
+        person5: document.getElementById('balance5'),
+        person6: document.getElementById('balance6'),
+        person7: document.getElementById('balance7')
+    };
+
+    // Summary Elements
+    const totalExpensesEl = document.getElementById('total-expenses');
+    const totalPersonalDebtsEl = document.getElementById('total-personal-debts');
+    const sharePerPersonEl = document.getElementById('share-per-person');
+
+    // Button Elements
+    const calculateBtn = document.getElementById('calculate-btn');
+    const resetBtn = document.getElementById('reset-btn');
+
+    // Tab Elements
+    const tabs = document.querySelectorAll('.tab');
+    const tabContents = document.querySelectorAll('.tab-content');
+
+    // Confirmation Dialogs
+    const resetConfirmation = document.getElementById('reset-confirmation');
+    const deleteConfirmation = document.getElementById('delete-confirmation');
+    const deleteOverlay = document.getElementById('delete-overlay');
+    const confirmResetBtn = document.getElementById('confirm-reset-btn');
+    const cancelResetBtn = document.getElementById('cancel-reset-btn');
+    const confirmDeleteBtn = document.getElementById('confirm-delete-btn');
+    const cancelDeleteBtn = document.getElementById('cancel-delete-btn');
+
+    // Delete State
+    let itemToDelete = null;
+    let deleteType = null; // 'expense' or 'debt'
+
+    // ============ INITIALIZATION ============
+    function init() {
+        // Set today's date
+        setTodayDate();
+
+        // Setup roommate tags
+        setupRoommateTags();
+
+        // Load and render data
+        renderExpenses();
+        renderPersonalDebts();
+        calculateBalances();
+
+        // Set up event listeners
+        setupEventListeners();
+
+        // Setup auto-save indicator
+        setupAutoSaveIndicator();
+
+        // Expose functions to global scope for realtime.js
+        exposeToGlobalScope();
     }
 
-    init() {
-        // Get current user from localStorage or prompt
-        this.currentUser = localStorage.getItem('warsan305_user') || '';
-
-        if (!this.currentUser) {
-            this.promptForUsername();
-        } else {
-            this.connectToServer();
-        }
-
-        // Setup event listeners after app is initialized
-        setTimeout(() => this.setupEventListeners(), 100);
+    function setTodayDate() {
+        const today = new Date().toISOString().split('T')[0];
+        invoiceDate.value = today;
+        debtDate.value = today;
     }
 
-    promptForUsername() {
-        const username = prompt('Enter your name to join the collaborative space:');
-        if (username && username.trim()) {
-            this.currentUser = username.trim();
-            localStorage.setItem('warsan305_user', this.currentUser);
-            this.connectToServer();
-        } else {
-            setTimeout(() => this.promptForUsername(), 100);
-        }
-    }
+    function setupRoommateTags() {
+        if (!roommateTagsContainer) return;
 
-    connectToServer() {
-        this.socket = io();
+        // Clear container
+        roommateTagsContainer.innerHTML = '';
 
-        // Connection events
-        this.socket.on('connect', () => {
-            console.log('Connected to server');
-            this.isConnected = true;
-            this.updateConnectionStatus('connected');
-
-            // Join the room
-            this.socket.emit('join-room', {
-                roomId: this.roomId,
-                userName: this.currentUser
-            });
-        });
-
-        this.socket.on('disconnect', () => {
-            console.log('Disconnected from server');
-            this.isConnected = false;
-            this.updateConnectionStatus('disconnected');
-        });
-
-        this.socket.on('connect_error', () => {
-            this.updateConnectionStatus('disconnected');
-        });
-
-        // Room data received
-        this.socket.on('room-data', (data) => {
-            console.log('Room data received:', data);
-
-            // Update local data
-            if (data.expenses) {
-                window.appInstance.sharedExpenses = data.expenses;
-                window.appInstance.renderExpenses();
-                window.appInstance.calculateBalances();
-            }
-
-            if (data.personalDebts) {
-                window.appInstance.personalDebts = data.personalDebts;
-                window.appInstance.renderPersonalDebts();
-                window.appInstance.calculateBalances();
-            }
-
-            // Update user list
-            this.updateUserList(data.users);
-
-            // Update activity feed
-            if (data.activityLog) {
-                this.updateActivityFeed(data.activityLog);
-            }
-        });
-
-        // User events
-        this.socket.on('user-joined', (user) => {
-            this.showNotification(`${user.name} joined the room`);
-            this.addUserToList(user);
-        });
-
-        this.socket.on('user-left', (data) => {
-            this.showNotification(`${data.userName} left the room`);
-            this.removeUserFromList(data.userId);
-        });
-
-        this.socket.on('update-users', (users) => {
-            this.updateUserList(users);
-        });
-
-        // Data events
-        this.socket.on('expense-added', (data) => {
-            const expense = data.expense;
-
-            // Add to local expenses if not already present
-            if (!window.appInstance.sharedExpenses.some(e => e.id === expense.id)) {
-                window.appInstance.sharedExpenses.unshift(expense);
-                window.appInstance.renderExpenses();
-                window.appInstance.calculateBalances();
-                window.appInstance.showAutoSaveIndicator('New expense added');
-
-                this.showNotification(`${data.addedBy} added expense: ${expense.name}`);
-            }
-        });
-
-        this.socket.on('debt-added', (data) => {
-            const debt = data.debt;
-
-            if (!window.appInstance.personalDebts.some(d => d.id === debt.id)) {
-                window.appInstance.personalDebts.unshift(debt);
-                window.appInstance.renderPersonalDebts();
-                window.appInstance.calculateBalances();
-                window.appInstance.showAutoSaveIndicator('New debt added');
-
-                this.showNotification(`${data.addedBy} added personal debt: ${debt.description}`);
-            }
-        });
-
-        this.socket.on('item-deleted', (data) => {
-            if (data.itemType === 'expense') {
-                const index = window.appInstance.sharedExpenses.findIndex(e => e.id === data.itemId);
-                if (index !== -1) {
-                    window.appInstance.sharedExpenses.splice(index, 1);
-                    window.appInstance.renderExpenses();
-                    window.appInstance.calculateBalances();
-                    window.appInstance.showAutoSaveIndicator('Expense deleted');
-                }
-            } else if (data.itemType === 'debt') {
-                const index = window.appInstance.personalDebts.findIndex(d => d.id === data.itemId);
-                if (index !== -1) {
-                    window.appInstance.personalDebts.splice(index, 1);
-                    window.appInstance.renderPersonalDebts();
-                    window.appInstance.showAutoSaveIndicator('Debt deleted');
-                }
-            }
-        });
-
-        this.socket.on('debt-settled', (data) => {
-            const debt = window.appInstance.personalDebts.find(d => d.id === data.debtId);
-            if (debt) {
-                debt.status = 'settled';
-                debt.settledAt = new Date().toISOString();
-                window.appInstance.renderPersonalDebts();
-                window.appInstance.calculateBalances();
-                window.appInstance.showAutoSaveIndicator('Debt settled');
-            }
-        });
-
-        this.socket.on('data-reset', () => {
-            window.appInstance.sharedExpenses = [];
-            window.appInstance.personalDebts = [];
-            window.appInstance.settlements = [];
-
-            window.appInstance.renderExpenses();
-            window.appInstance.renderPersonalDebts();
-            window.appInstance.calculateBalances();
-            window.appInstance.showAutoSaveIndicator('Data reset');
-
-            // Clear settlement display
-            const settlementContainer = document.getElementById('settlement-container');
-            if (settlementContainer) {
-                settlementContainer.innerHTML = '<p class="no-expenses">Click "Calculate" to see who owes whom (including personal debts)</p>';
-            }
-
-            // Hide circular debt section
-            const circularDebtSection = document.getElementById('circular-debt-section');
-            if (circularDebtSection) {
-                circularDebtSection.style.display = 'none';
-            }
-        });
-    }
-
-    updateConnectionStatus(status) {
-        const statusElement = document.getElementById('connection-status');
-        if (statusElement) {
-            statusElement.className = `connection-status status-${status}`;
-
-            switch(status) {
-                case 'connected':
-                    statusElement.innerHTML = '<i class="fas fa-circle"></i><span>Connected</span>';
-                    break;
-                case 'disconnected':
-                    statusElement.innerHTML = '<i class="fas fa-circle"></i><span>Disconnected</span>';
-                    break;
-                case 'connecting':
-                    statusElement.innerHTML = '<i class="fas fa-circle"></i><span>Connecting...</span>';
-                    break;
-            }
-        }
-    }
-
-    updateUserList(users) {
-        const userListElement = document.getElementById('user-list');
-        if (userListElement) {
-            userListElement.innerHTML = '';
-
-            // Add current user first
-            userListElement.innerHTML += `
-                <li>
-                    <div class="user-avatar" style="background-color: ${this.getUserColor(this.currentUser)}">
-                        ${this.currentUser.charAt(0).toUpperCase()}
-                    </div>
-                    <div>
-                        <strong>${this.currentUser} (You)</strong>
-                    </div>
-                </li>
+        // Create tags for each roommate
+        ROOMMATE_IDS.forEach(id => {
+            const tag = document.createElement('div');
+            tag.className = `roommate-tag ${selectedRoommates.has(id) ? 'selected' : ''}`;
+            tag.dataset.id = id;
+            tag.innerHTML = `
+                <span class="tag-avatar">${ROOMMATES[id].charAt(0)}</span>
+                <span class="tag-name">${ROOMMATES[id]}</span>
+                <span class="tag-checkmark">✓</span>
             `;
+            roommateTagsContainer.appendChild(tag);
+        });
 
-            // Add other users
-            if (users && Array.isArray(users)) {
-                users.forEach(user => {
-                    if (user.id !== this.socket.id) {
-                        userListElement.innerHTML += `
-                            <li id="user-${user.id}">
-                                <div class="user-avatar" style="background-color: ${user.color}">
-                                    ${user.name.charAt(0).toUpperCase()}
-                                </div>
-                                <div>
-                                    <strong>${user.name}</strong>
-                                </div>
-                            </li>
-                        `;
-                    }
-                });
-            }
+        updateSelectedCount();
+    }
 
-            // Show/hide active users panel
-            const activeUsersPanel = document.getElementById('active-users');
-            if (activeUsersPanel) {
-                if (users && users.length > 0) {
-                    activeUsersPanel.style.display = 'block';
-                } else {
-                    activeUsersPanel.style.display = 'none';
-                }
-            }
+    function updateSelectedCount() {
+        if (selectedCountEl) {
+            selectedCountEl.textContent = `${selectedRoommates.size}/${ROOMMATE_IDS.length}`;
         }
     }
 
-    addUserToList(user) {
-        const userListElement = document.getElementById('user-list');
-        if (userListElement && user.id !== this.socket.id) {
-            const existingUser = document.getElementById(`user-${user.id}`);
-            if (!existingUser) {
-                userListElement.innerHTML += `
-                    <li id="user-${user.id}">
-                        <div class="user-avatar" style="background-color: ${user.color}">
-                            ${user.name.charAt(0).toUpperCase()}
-                        </div>
-                        <div>
-                            <strong>${user.name}</strong>
-                        </div>
-                    </li>
-                `;
-            }
+    function toggleRoommateSelection(id) {
+        if (selectedRoommates.has(id)) {
+            selectedRoommates.delete(id);
+        } else {
+            selectedRoommates.add(id);
         }
+        
+        const tag = document.querySelector(`.roommate-tag[data-id="${id}"]`);
+        if (tag) {
+            tag.classList.toggle('selected', selectedRoommates.has(id));
+        }
+        
+        updateSelectedCount();
+        updatePaidByOptions();
     }
 
-    removeUserFromList(userId) {
-        const userElement = document.getElementById(`user-${userId}`);
-        if (userElement) {
-            userElement.remove();
-        }
-    }
-
-    updateActivityFeed(activities) {
-        const activityList = document.getElementById('activity-list');
-        if (activityList) {
-            if (!Array.isArray(activities)) {
-                activities = [activities];
-            }
-
-            activities.forEach(activity => {
-                const icon = this.getActivityIcon(activity.type);
-                activityList.innerHTML += `
-                    <div class="activity-item">
-                        <i class="fas ${icon}"></i> ${activity.message}
-                        <div class="activity-time">${activity.time}</div>
-                    </div>
-                `;
-            });
-
-            // Keep only last 10 activities
-            const allActivities = activityList.querySelectorAll('.activity-item');
-            if (allActivities.length > 10) {
-                for (let i = 0; i < allActivities.length - 10; i++) {
-                    allActivities[i].remove();
-                }
-            }
-        }
-    }
-
-    getActivityIcon(type) {
-        switch(type) {
-            case 'join': return 'fa-user-plus';
-            case 'leave': return 'fa-user-minus';
-            case 'expense': return 'fa-receipt';
-            case 'debt': return 'fa-hand-holding-usd';
-            case 'delete': return 'fa-trash';
-            case 'settle': return 'fa-check-circle';
-            case 'reset': return 'fa-redo';
-            case 'calculate': return 'fa-calculator';
-            default: return 'fa-info-circle';
-        }
-    }
-
-    getUserColor(userName) {
-        const colors = [
-            '#3498db', '#e74c3c', '#2ecc71', '#f39c12',
-            '#9b59b6', '#1abc9c', '#e67e22'
-        ];
-
-        let hash = 0;
-        for (let i = 0; i < userName.length; i++) {
-            hash = userName.charCodeAt(i) + ((hash << 5) - hash);
-        }
-
-        return colors[Math.abs(hash) % colors.length];
-    }
-
-    showNotification(message) {
-        const notification = document.createElement('div');
-        notification.className = 'notification';
-        notification.textContent = message;
-        notification.style.cssText = `
-            position: fixed;
-            bottom: 80px;
-            right: 20px;
-            background: var(--primary-color);
-            color: white;
-            padding: 12px 20px;
-            border-radius: 8px;
-            z-index: 1000;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-            animation: slideIn 0.3s ease forwards;
-            max-width: 300px;
-            font-size: 0.9rem;
-        `;
-
-        document.body.appendChild(notification);
-
-        setTimeout(() => {
-            notification.style.animation = 'slideOut 0.3s ease forwards';
-            setTimeout(() => {
-                if (notification.parentNode) {
-                    notification.remove();
-                }
-            }, 300);
-        }, 3000);
-
-        if (!document.querySelector('#notification-styles')) {
-            const style = document.createElement('style');
-            style.id = 'notification-styles';
-            style.textContent = `
-                @keyframes slideIn {
-                    from { transform: translateX(100%); opacity: 0; }
-                    to { transform: translateX(0); opacity: 1; }
-                }
-                @keyframes slideOut {
-                    from { transform: translateX(0); opacity: 1; }
-                    to { transform: translateX(100%); opacity: 0; }
-                }
-            `;
-            document.head.appendChild(style);
-        }
-    }
-
-    setupEventListeners() {
-        // Override the original button click handlers
-        const addExpenseBtn = document.getElementById('add-expense-btn');
-        const addDebtBtn = document.getElementById('add-debt-btn');
-        const calculateBtn = document.getElementById('calculate-btn');
-        const resetBtn = document.getElementById('reset-btn');
-
-        if (addExpenseBtn) {
-            addExpenseBtn.onclick = (e) => {
-                e.preventDefault();
-                this.handleAddExpense();
-            };
-        }
-
-        if (addDebtBtn) {
-            addDebtBtn.onclick = (e) => {
-                e.preventDefault();
-                this.handleAddDebt();
-            };
-        }
-
-        if (calculateBtn) {
-            calculateBtn.onclick = (e) => {
-                e.preventDefault();
-                this.handleCalculate();
-            };
-        }
-
-        if (resetBtn) {
-            resetBtn.onclick = (e) => {
-                e.preventDefault();
-                this.handleReset();
-            };
-        }
-
-        // Also override form submissions
-        const expenseForm = document.querySelector('#shared-expense-tab');
-        const debtForm = document.querySelector('#personal-debt-tab');
-
-        if (expenseForm) {
-            expenseForm.addEventListener('submit', (e) => {
-                e.preventDefault();
-                this.handleAddExpense();
-            });
-        }
-
-        if (debtForm) {
-            debtForm.addEventListener('submit', (e) => {
-                e.preventDefault();
-                this.handleAddDebt();
-            });
-        }
-
-        // Setup select all checkbox event listener
-        const selectAllCheckbox = document.getElementById('select-all-checkbox');
-        if (selectAllCheckbox) {
-            selectAllCheckbox.addEventListener('change', function() {
-                const isChecked = this.checked;
-                const roommateCheckboxes = document.querySelectorAll('#roommate-checkboxes input[type="checkbox"]');
-                roommateCheckboxes.forEach(checkbox => {
-                    checkbox.checked = isChecked;
-                });
-            });
-        }
-
-        // Setup individual checkbox event listeners
-        this.setupIndividualCheckboxListeners();
-    }
-
-    setupIndividualCheckboxListeners() {
-        // This will be called after checkboxes are created by app.js
-        setTimeout(() => {
-            const roommateCheckboxes = document.querySelectorAll('#roommate-checkboxes input[type="checkbox"]');
-            const selectAllCheckbox = document.getElementById('select-all-checkbox');
+    function updatePaidByOptions() {
+        // Filter paid by dropdown to only include selected roommates
+        if (paidBy) {
+            const currentValue = paidBy.value;
+            paidBy.innerHTML = '';
             
-            if (roommateCheckboxes.length > 0 && selectAllCheckbox) {
-                roommateCheckboxes.forEach(checkbox => {
-                    checkbox.addEventListener('change', function() {
-                        // Update "Select All" checkbox state
-                        const allChecked = Array.from(roommateCheckboxes).every(cb => cb.checked);
-                        const allUnchecked = Array.from(roommateCheckboxes).every(cb => !cb.checked);
-                        
-                        if (allChecked) {
-                            selectAllCheckbox.checked = true;
-                            selectAllCheckbox.indeterminate = false;
-                        } else if (allUnchecked) {
-                            selectAllCheckbox.checked = false;
-                            selectAllCheckbox.indeterminate = false;
-                        } else {
-                            selectAllCheckbox.checked = false;
-                            selectAllCheckbox.indeterminate = true;
-                        }
-                    });
-                });
+            ROOMMATE_IDS.forEach(id => {
+                if (selectedRoommates.has(id)) {
+                    const option = document.createElement('option');
+                    option.value = id;
+                    option.textContent = ROOMMATES[id];
+                    paidBy.appendChild(option);
+                }
+            });
+            
+            // Try to maintain the current selection, or select the first available
+            if (selectedRoommates.has(currentValue)) {
+                paidBy.value = currentValue;
+            } else if (selectedRoommates.size > 0) {
+                paidBy.value = Array.from(selectedRoommates)[0];
             }
-        }, 500);
+        }
     }
 
-    handleAddExpense() {
-        const type = document.getElementById('expense-type').value;
-        const name = document.getElementById('expense-name').value.trim();
-        const amount = parseFloat(document.getElementById('expense-amount').value);
-        const date = document.getElementById('invoice-date').value;
-        const paidBy = document.getElementById('paid-by').value;
+    // ============ EVENT LISTENERS ============
+    function setupEventListeners() {
+        // Today buttons
+        todayBtn.addEventListener('click', () => {
+            invoiceDate.value = new Date().toISOString().split('T')[0];
+        });
 
-        // Get selected roommates
-        const selectedRoommates = [];
-        const roommateCheckboxes = document.querySelectorAll('#roommate-checkboxes input[type="checkbox"]');
-        roommateCheckboxes.forEach(checkbox => {
-            if (checkbox.checked) {
-                selectedRoommates.push(checkbox.value);
+        debtTodayBtn.addEventListener('click', () => {
+            debtDate.value = new Date().toISOString().split('T')[0];
+        });
+
+        // Roommate selection
+        if (roommateTagsContainer) {
+            roommateTagsContainer.addEventListener('click', (e) => {
+                const tag = e.target.closest('.roommate-tag');
+                if (tag) {
+                    const id = tag.dataset.id;
+                    toggleRoommateSelection(id);
+                }
+            });
+        }
+
+        // Select All button
+        if (selectAllBtn) {
+            selectAllBtn.addEventListener('click', () => {
+                ROOMMATE_IDS.forEach(id => selectedRoommates.add(id));
+                document.querySelectorAll('.roommate-tag').forEach(tag => {
+                    tag.classList.add('selected');
+                });
+                updateSelectedCount();
+                updatePaidByOptions();
+            });
+        }
+
+        // Clear All button
+        if (clearAllBtn) {
+            clearAllBtn.addEventListener('click', () => {
+                selectedRoommates.clear();
+                document.querySelectorAll('.roommate-tag').forEach(tag => {
+                    tag.classList.remove('selected');
+                });
+                updateSelectedCount();
+                updatePaidByOptions();
+            });
+        }
+
+        // Add Expense button
+        addExpenseBtn.addEventListener('click', addSharedExpense);
+
+        // Add Debt button
+        addDebtBtn.addEventListener('click', addPersonalDebt);
+
+        // Calculate button
+        calculateBtn.addEventListener('click', calculateSettlements);
+
+        // Reset button
+        resetBtn.addEventListener('click', showResetConfirmation);
+
+        // Reset confirmation buttons
+        confirmResetBtn.addEventListener('click', resetAllData);
+        cancelResetBtn.addEventListener('click', hideResetConfirmation);
+
+        // Delete confirmation buttons
+        confirmDeleteBtn.addEventListener('click', confirmDelete);
+        cancelDeleteBtn.addEventListener('click', hideDeleteConfirmation);
+
+        // Tabs
+        tabs.forEach(tab => {
+            tab.addEventListener('click', () => {
+                const tabId = tab.getAttribute('data-tab');
+                switchTab(tabId);
+            });
+        });
+
+        // Form submission on Enter key
+        expenseName.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') addSharedExpense();
+        });
+
+        debtDescription.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') addPersonalDebt();
+        });
+
+        // Auto-select the payer when typing expense name
+        expenseName.addEventListener('focus', () => {
+            if (selectedRoommates.size === 0) {
+                ROOMMATE_IDS.forEach(id => selectedRoommates.add(id));
+                setupRoommateTags();
+                updatePaidByOptions();
             }
         });
+
+        // Backward compatibility for realtime.js
+        setupRealtimeCompatibility();
+    }
+
+    function setupRealtimeCompatibility() {
+        // Expose global functions for backward compatibility
+        window.addExpense = addSharedExpense;
+        window.addPersonalDebt = addPersonalDebt;
+        window.calculateSettlements = calculateSettlements;
+        window.resetAllData = resetAllData;
+        window.settleDebt = settlePersonalDebt;
+        window.deleteItem = confirmDelete;
+        window.hideDeleteConfirmation = hideDeleteConfirmation;
+        window.hideResetConfirmation = hideResetConfirmation;
+
+        // Expose variables for realtime.js
+        window.expenses = sharedExpenses;
+        window.personalDebts = personalDebts;
+        window.itemToDelete = itemToDelete;
+        window.itemTypeToDelete = deleteType;
+        window.selectedRoommates = selectedRoommates;
+    }
+
+    // ============ TAB MANAGEMENT ============
+    function switchTab(tabId) {
+        // Update active tab
+        tabs.forEach(tab => {
+            tab.classList.remove('active');
+            if (tab.getAttribute('data-tab') === tabId) {
+                tab.classList.add('active');
+            }
+        });
+
+        // Show active content
+        tabContents.forEach(content => {
+            content.classList.remove('active');
+            if (content.id === `${tabId}-tab`) {
+                content.classList.add('active');
+            }
+        });
+    }
+
+    // ============ SHARED EXPENSE MANAGEMENT ============
+    function addSharedExpense() {
+        // Get form values
+        const type = expenseType.value;
+        const name = expenseName.value.trim();
+        const amount = parseFloat(expenseAmount.value);
+        const date = invoiceDate.value;
+        const paidByValue = paidBy.value;
+
+        // Convert selectedRoommates Set to array
+        const selectedRoommatesArray = Array.from(selectedRoommates);
 
         // Validation
         if (!name) {
             alert('Please enter an expense name');
-            document.getElementById('expense-name').focus();
+            expenseName.focus();
             return;
         }
 
         if (!amount || amount <= 0 || isNaN(amount)) {
             alert('Please enter a valid amount');
-            document.getElementById('expense-amount').focus();
+            expenseAmount.focus();
             return;
         }
 
         if (!date) {
             alert('Please select a date');
-            document.getElementById('invoice-date').focus();
+            invoiceDate.focus();
             return;
         }
 
-        if (selectedRoommates.length === 0) {
+        if (selectedRoommatesArray.length === 0) {
             alert('Please select at least one roommate to include in this expense');
             return;
         }
 
-        if (!selectedRoommates.includes(paidBy)) {
+        if (!selectedRoommatesArray.includes(paidByValue)) {
             alert('The person who paid must be included in the expense');
             return;
         }
@@ -528,51 +371,132 @@ class RealTimeCollaboration {
             name: name,
             amount: amount,
             date: date,
-            paidBy: paidBy,
-            paidByName: window.appInstance.ROOMMATES[paidBy],
-            includedPersons: selectedRoommates,
-            sharePerPerson: amount / selectedRoommates.length,
+            paidBy: paidByValue,
+            paidByName: ROOMMATES[paidByValue],
+            includedPersons: selectedRoommatesArray,
+            sharePerPerson: amount / selectedRoommatesArray.length,
             createdAt: new Date().toISOString()
         };
 
-        // Emit to server
-        if (this.socket && this.isConnected) {
-            this.socket.emit('add-expense', {
-                roomId: this.roomId,
-                expense: expense,
-                userName: this.currentUser
-            });
-        } else {
-            // Local fallback
-            window.appInstance.sharedExpenses.push(expense);
-            window.appInstance.saveData();
-            window.appInstance.renderExpenses();
-            window.appInstance.calculateBalances();
-            window.appInstance.showAutoSaveIndicator('Expense added successfully!');
-        }
+        // Add to expenses array
+        sharedExpenses.push(expense);
+
+        // Save to localStorage
+        saveData();
+
+        // Update UI
+        renderExpenses();
+        calculateBalances();
 
         // Reset form
-        document.getElementById('expense-name').value = '';
-        document.getElementById('expense-amount').value = '';
-        
-        // Reset checkboxes to all checked
-        roommateCheckboxes.forEach(checkbox => {
-            checkbox.checked = true;
-        });
-        const selectAllCheckbox = document.getElementById('select-all-checkbox');
-        if (selectAllCheckbox) {
-            selectAllCheckbox.checked = true;
-            selectAllCheckbox.indeterminate = false;
+        expenseName.value = '';
+        expenseAmount.value = '';
+        expenseName.focus();
+
+        // Reset roommate selection to all
+        selectedRoommates = new Set(ROOMMATE_IDS);
+        setupRoommateTags();
+        updatePaidByOptions();
+
+        // Show success message
+        showAutoSaveIndicator('Expense added successfully!');
+
+        // Add to activity feed
+        addActivity(`Added shared expense: ${name} ($${amount.toFixed(2)})`);
+
+        // Emit to server if real-time is active
+        if (window.realTime && window.realTime.socket && window.realTime.isConnected) {
+            window.realTime.socket.emit('add-expense', {
+                roomId: 'warsan305',
+                expense: expense,
+                userName: window.realTime.currentUser || 'Anonymous'
+            });
         }
     }
 
-    handleAddDebt() {
-        const from = document.getElementById('debt-from').value;
-        const to = document.getElementById('debt-to').value;
-        const amount = parseFloat(document.getElementById('debt-amount').value);
-        const description = document.getElementById('debt-description').value.trim();
-        const date = document.getElementById('debt-date').value;
-        const notes = document.getElementById('debt-notes').value.trim();
+    function renderExpenses() {
+        if (!expenseList) return;
+
+        // Clear current list
+        expenseList.innerHTML = '';
+
+        if (sharedExpenses.length === 0) {
+            expenseList.innerHTML = '<div class="no-expenses">No shared expenses added yet</div>';
+            return;
+        }
+
+        // Sort by date (newest first)
+        const sortedExpenses = [...sharedExpenses].sort((a, b) =>
+            new Date(b.date) - new Date(a.date)
+        );
+
+        // Render each expense
+        sortedExpenses.forEach(expense => {
+            const expenseItem = document.createElement('div');
+            expenseItem.className = 'expense-item';
+            expenseItem.dataset.id = expense.id;
+
+            const formattedDate = new Date(expense.date).toLocaleDateString('en-US', {
+                month: 'short',
+                day: 'numeric',
+                year: 'numeric'
+            });
+
+            // Create included persons badges
+            const includedBadges = (expense.includedPersons || ROOMMATE_IDS)
+                .map(id => `<span class="included-badge">${ROOMMATES[id].charAt(0)}</span>`)
+                .join('');
+
+            expenseItem.innerHTML = `
+                <div class="expense-details">
+                    <div class="expense-title-row">
+                        <div class="expense-title">${expense.name}</div>
+                        <div class="expense-included-badges">${includedBadges}</div>
+                    </div>
+                    <div class="expense-meta">
+                        <span>${formattedDate}</span>
+                        <span>•</span>
+                        <span>${expense.type}</span>
+                        <span>•</span>
+                        <span>Paid by ${expense.paidByName}</span>
+                        <span>•</span>
+                        <span>${expense.includedPersons ? expense.includedPersons.length : 7} people</span>
+                    </div>
+                    <div class="expense-share-row">
+                        <div class="expense-share">$${expense.sharePerPerson ? expense.sharePerPerson.toFixed(2) : (expense.amount / 7).toFixed(2)} each</div>
+                        <div class="expense-split-note">Split ${expense.includedPersons ? 'among selected' : 'equally'}</div>
+                    </div>
+                </div>
+                <div class="expense-amount-container">
+                    <span class="expense-amount">$${expense.amount.toFixed(2)}</span>
+                    <button class="delete-btn" data-id="${expense.id}" data-type="expense">
+                        <i class="fas fa-trash"></i>
+                    </button>
+                </div>
+            `;
+
+            expenseList.appendChild(expenseItem);
+        });
+
+        // Add delete event listeners
+        document.querySelectorAll('.expense-item .delete-btn').forEach(btn => {
+            btn.addEventListener('click', function(e) {
+                e.stopPropagation();
+                const id = parseInt(this.getAttribute('data-id'));
+                showDeleteConfirmation(id, 'expense');
+            });
+        });
+    }
+
+    // ============ PERSONAL DEBT MANAGEMENT ============
+    function addPersonalDebt() {
+        // Get form values
+        const from = debtFrom.value;
+        const to = debtTo.value;
+        const amount = parseFloat(debtAmount.value);
+        const description = debtDescription.value.trim();
+        const date = debtDate.value;
+        const notes = debtNotes.value.trim();
 
         // Validation
         if (from === to) {
@@ -582,19 +506,19 @@ class RealTimeCollaboration {
 
         if (!description) {
             alert('Please enter a description');
-            document.getElementById('debt-description').focus();
+            debtDescription.focus();
             return;
         }
 
         if (!amount || amount <= 0 || isNaN(amount)) {
             alert('Please enter a valid amount');
-            document.getElementById('debt-amount').focus();
+            debtAmount.focus();
             return;
         }
 
         if (!date) {
             alert('Please select a date');
-            document.getElementById('debt-date').focus();
+            debtDate.focus();
             return;
         }
 
@@ -602,9 +526,9 @@ class RealTimeCollaboration {
         const debt = {
             id: Date.now(),
             from: from,
-            fromName: window.appInstance.ROOMMATES[from],
+            fromName: ROOMMATES[from],
             to: to,
-            toName: window.appInstance.ROOMMATES[to],
+            toName: ROOMMATES[to],
             amount: amount,
             description: description,
             date: date,
@@ -613,66 +537,621 @@ class RealTimeCollaboration {
             createdAt: new Date().toISOString()
         };
 
-        // Emit to server
-        if (this.socket && this.isConnected) {
-            this.socket.emit('add-personal-debt', {
-                roomId: this.roomId,
-                debt: debt,
-                userName: this.currentUser
-            });
-        } else {
-            // Local fallback
-            window.appInstance.personalDebts.push(debt);
-            window.appInstance.saveData();
-            window.appInstance.renderPersonalDebts();
-            window.appInstance.showAutoSaveIndicator('Personal debt added successfully!');
-        }
+        // Add to debts array
+        personalDebts.push(debt);
+
+        // Save to localStorage
+        saveData();
+
+        // Update UI
+        renderPersonalDebts();
 
         // Reset form
-        document.getElementById('debt-description').value = '';
-        document.getElementById('debt-amount').value = '';
-        document.getElementById('debt-notes').value = '';
-    }
+        debtDescription.value = '';
+        debtAmount.value = '';
+        debtNotes.value = '';
+        debtDescription.focus();
 
-    handleCalculate() {
-        // Just trigger the original calculation
-        if (window.appInstance && window.appInstance.calculateSettlements) {
-            window.appInstance.calculateSettlements();
+        // Show success message
+        showAutoSaveIndicator('Personal debt added successfully!');
 
-            // Emit to server
-            if (this.socket && this.isConnected) {
-                this.socket.emit('calculate-settlements', {
-                    roomId: this.roomId,
-                    userName: this.currentUser
-                });
-            }
+        // Add to activity feed
+        addActivity(`Added personal debt: ${ROOMMATES[from]} owes ${ROOMMATES[to]} $${amount.toFixed(2)}`);
+
+        // Emit to server if real-time is active
+        if (window.realTime && window.realTime.socket && window.realTime.isConnected) {
+            window.realTime.socket.emit('add-personal-debt', {
+                roomId: 'warsan305',
+                debt: debt,
+                userName: window.realTime.currentUser || 'Anonymous'
+            });
         }
     }
 
-    handleReset() {
-        if (confirm('Are you sure you want to reset all data? This cannot be undone.')) {
-            // Emit to server
-            if (this.socket && this.isConnected) {
-                this.socket.emit('reset-data', {
-                    roomId: this.roomId,
-                    userName: this.currentUser
+    function renderPersonalDebts() {
+        if (!debtList) return;
+
+        // Clear current list
+        debtList.innerHTML = '';
+
+        if (personalDebts.length === 0) {
+            debtList.innerHTML = '<div class="no-debts">No personal debts added yet</div>';
+            return;
+        }
+
+        // Sort by date (newest first)
+        const sortedDebts = [...personalDebts].sort((a, b) =>
+            new Date(b.date) - new Date(a.date)
+        );
+
+        // Render each debt
+        sortedDebts.forEach(debt => {
+            const debtItem = document.createElement('div');
+            debtItem.className = 'debt-item';
+            debtItem.dataset.id = debt.id;
+
+            const formattedDate = new Date(debt.date).toLocaleDateString('en-US', {
+                month: 'short',
+                day: 'numeric',
+                year: 'numeric'
+            });
+
+            const statusBadge = debt.status === 'settled' ?
+                '<span class="status-badge status-settled">Settled</span>' :
+                '<span class="status-badge status-pending">Pending</span>';
+
+            debtItem.innerHTML = `
+                <div class="debt-details">
+                    <div class="debt-title-row">
+                        <div class="debt-title">${debt.description}</div>
+                        ${statusBadge}
+                    </div>
+                    <div class="debt-meta">
+                        <span>${formattedDate}</span>
+                        <span>•</span>
+                        <span><span class="debtor">${debt.fromName}</span> → <span class="creditor">${debt.toName}</span></span>
+                        ${debt.notes ? '<span>•</span><span class="debt-notes">Note: ' + debt.notes + '</span>' : ''}
+                    </div>
+                </div>
+                <div class="debt-amount-container">
+                    <span class="debt-amount">$${debt.amount.toFixed(2)}</span>
+                    ${debt.status === 'pending' ?
+                        `<button class="settle-debt-btn" data-id="${debt.id}">Settle</button>` :
+                        ''}
+                    <button class="delete-btn" data-id="${debt.id}" data-type="debt">
+                        <i class="fas fa-trash"></i>
+                    </button>
+                </div>
+            `;
+
+            debtList.appendChild(debtItem);
+        });
+
+        // Add event listeners
+        document.querySelectorAll('.debt-item .delete-btn').forEach(btn => {
+            btn.addEventListener('click', function(e) {
+                e.stopPropagation();
+                const id = parseInt(this.getAttribute('data-id'));
+                showDeleteConfirmation(id, 'debt');
+            });
+        });
+
+        document.querySelectorAll('.settle-debt-btn').forEach(btn => {
+            btn.addEventListener('click', function(e) {
+                e.stopPropagation();
+                const id = parseInt(this.getAttribute('data-id'));
+                settlePersonalDebt(id);
+            });
+        });
+    }
+
+    // ============ BALANCE CALCULATION ============
+    function calculateBalances() {
+        // Reset all balances to 0
+        const balances = {};
+        ROOMMATE_IDS.forEach(id => {
+            balances[id] = 0;
+        });
+
+        // Calculate from shared expenses
+        sharedExpenses.forEach(expense => {
+            const amount = expense.amount;
+            const paidBy = expense.paidBy;
+            
+            // Get included persons for this expense (default to all if not specified)
+            const includedPersons = expense.includedPersons || ROOMMATE_IDS;
+            
+            // Calculate share per person for this specific expense
+            const sharePerPerson = amount / includedPersons.length;
+
+            // The payer paid the full amount, so they get credited
+            balances[paidBy] += amount;
+
+            // Each included person owes their share
+            includedPersons.forEach(id => {
+                balances[id] -= sharePerPerson;
+            });
+        });
+
+        // Calculate from personal debts
+        personalDebts.forEach(debt => {
+            if (debt.status === 'pending') {
+                balances[debt.from] -= debt.amount;
+                balances[debt.to] += debt.amount;
+            }
+        });
+
+        // Update UI
+        ROOMMATE_IDS.forEach(id => {
+            const balance = balances[id];
+            const element = balanceElements[id];
+            if (element) {
+                element.textContent = `$${balance.toFixed(2)}`;
+                element.className = balance >= 0 ? 'positive' : 'negative';
+            }
+        });
+
+        // Update summary
+        updateSummary(balances);
+    }
+
+    function updateSummary(balances) {
+        // Calculate totals
+        const totalExpenses = sharedExpenses.reduce((sum, expense) => sum + expense.amount, 0);
+        const totalPersonalDebts = personalDebts
+            .filter(debt => debt.status === 'pending')
+            .reduce((sum, debt) => sum + debt.amount, 0);
+
+        // Calculate average share per person
+        let totalShareAmount = 0;
+        sharedExpenses.forEach(expense => {
+            const includedPersons = expense.includedPersons || ROOMMATE_IDS;
+            const sharePerPerson = expense.amount / includedPersons.length;
+            totalShareAmount += sharePerPerson * (includedPersons.length / ROOMMATE_IDS.length);
+        });
+        
+        const sharePerPerson = sharedExpenses.length > 0 ? totalShareAmount : 0;
+
+        // Update UI
+        totalExpensesEl.textContent = `$${totalExpenses.toFixed(2)}`;
+        totalPersonalDebtsEl.textContent = `$${totalPersonalDebts.toFixed(2)}`;
+        sharePerPersonEl.textContent = `$${sharePerPerson.toFixed(2)}`;
+    }
+
+    // ============ SETTLEMENT CALCULATION ============
+    function calculateSettlements() {
+        // First calculate balances
+        const balances = {};
+        ROOMMATE_IDS.forEach(id => {
+            balances[id] = 0;
+        });
+
+        // Calculate from shared expenses
+        sharedExpenses.forEach(expense => {
+            const amount = expense.amount;
+            const paidBy = expense.paidBy;
+            const includedPersons = expense.includedPersons || ROOMMATE_IDS;
+
+            const sharePerPerson = amount / includedPersons.length;
+
+            balances[paidBy] += amount;
+            includedPersons.forEach(id => {
+                balances[id] -= sharePerPerson;
+            });
+        });
+
+        // Calculate from personal debts
+        personalDebts.forEach(debt => {
+            if (debt.status === 'pending') {
+                balances[debt.from] -= debt.amount;
+                balances[debt.to] += debt.amount;
+            }
+        });
+
+        // Separate debtors and creditors
+        const debtors = [];
+        const creditors = [];
+
+        ROOMMATE_IDS.forEach(id => {
+            const balance = balances[id];
+            if (balance < -0.01) { // Debtor (owes money)
+                debtors.push({
+                    id: id,
+                    name: ROOMMATES[id],
+                    amount: Math.abs(balance)
                 });
-            } else {
-                // Local fallback
-                if (window.appInstance && window.appInstance.resetAllData) {
-                    window.appInstance.resetAllData();
+            } else if (balance > 0.01) { // Creditor (owed money)
+                creditors.push({
+                    id: id,
+                    name: ROOMMATES[id],
+                    amount: balance
+                });
+            }
+        });
+
+        // Sort by amount (largest first)
+        debtors.sort((a, b) => b.amount - a.amount);
+        creditors.sort((a, b) => b.amount - a.amount);
+
+        // Calculate settlements
+        settlements = [];
+        let debtorIndex = 0;
+        let creditorIndex = 0;
+
+        while (debtorIndex < debtors.length && creditorIndex < creditors.length) {
+            const debtor = debtors[debtorIndex];
+            const creditor = creditors[creditorIndex];
+
+            const amountToSettle = Math.min(debtor.amount, creditor.amount);
+
+            if (amountToSettle > 0.01) { // Only add if amount is significant
+                settlements.push({
+                    from: debtor.id,
+                    fromName: debtor.name,
+                    to: creditor.id,
+                    toName: creditor.name,
+                    amount: amountToSettle
+                });
+
+                // Update remaining amounts
+                debtor.amount -= amountToSettle;
+                creditor.amount -= amountToSettle;
+            }
+
+            // Move to next debtor/creditor if settled
+            if (debtor.amount < 0.01) debtorIndex++;
+            if (creditor.amount < 0.01) creditorIndex++;
+        }
+
+        // Update UI
+        renderSettlements();
+        renderDebtMatrix(balances);
+
+        // Show circular debt section
+        if (circularDebtSection) {
+            circularDebtSection.style.display = 'block';
+        }
+
+        // Show success message
+        showAutoSaveIndicator('Settlements calculated successfully!');
+
+        // Add to activity feed
+        addActivity('Calculated settlement plan');
+
+        // Emit to server if real-time is active
+        if (window.realTime && window.realTime.socket && window.realTime.isConnected) {
+            window.realTime.socket.emit('calculate-settlements', {
+                roomId: 'warsan305',
+                settlements: settlements,
+                userName: window.realTime.currentUser || 'Anonymous'
+            });
+        }
+    }
+
+    function renderSettlements() {
+        if (!settlementContainer) return;
+
+        // Clear current content
+        settlementContainer.innerHTML = '';
+
+        if (settlements.length === 0) {
+            settlementContainer.innerHTML = '<p class="no-expenses">All balances are settled!</p>';
+            return;
+        }
+
+        // Create settlement list
+        const settlementList = document.createElement('ul');
+        settlementList.className = 'settlement-list';
+
+        settlements.forEach(settlement => {
+            const listItem = document.createElement('li');
+            listItem.innerHTML = `
+                <i class="fas fa-arrow-right"></i>
+                <strong>${settlement.fromName}</strong> should pay
+                <strong>${settlement.toName}</strong>
+                <strong>$${settlement.amount.toFixed(2)}</strong>
+            `;
+            settlementList.appendChild(listItem);
+        });
+
+        settlementContainer.appendChild(settlementList);
+
+        // Add summary
+        const totalSettlement = settlements.reduce((sum, s) => sum + s.amount, 0);
+        const summary = document.createElement('div');
+        summary.className = 'settlement-summary';
+        summary.innerHTML = `
+            <p><strong>Total to be transferred:</strong> $${totalSettlement.toFixed(2)}</p>
+            <p><strong>Number of transactions:</strong> ${settlements.length}</p>
+            <p>This minimizes the total number of payments needed to settle all balances.</p>
+        `;
+        settlementContainer.appendChild(summary);
+    }
+
+    function renderDebtMatrix(balances) {
+        if (!debtMatrixContainer) return;
+
+        // Create matrix table
+        let tableHTML = `
+            <table class="debt-matrix">
+            <thead>
+                <tr>
+                    <th></th>
+        `;
+
+        // Header row with names
+        ROOMMATE_IDS.forEach(id => {
+            tableHTML += `<th>${ROOMMATES[id]}</th>`;
+        });
+
+        tableHTML += '</tr></thead><tbody>';
+
+        // Create matrix rows
+        ROOMMATE_IDS.forEach(fromId => {
+            tableHTML += `<tr><th>${ROOMMATES[fromId]}</th>`;
+
+            ROOMMATE_IDS.forEach(toId => {
+                if (fromId === toId) {
+                    tableHTML += '<td class="diagonal-cell">-</td>';
+                } else {
+                    // Calculate net debt between these two people
+                    let netDebt = 0;
+
+                    // Check personal debts
+                    personalDebts.forEach(debt => {
+                        if (debt.status === 'pending') {
+                            if (debt.from === fromId && debt.to === toId) {
+                                netDebt -= debt.amount; // from owes to
+                            } else if (debt.from === toId && debt.to === fromId) {
+                                netDebt += debt.amount; // to owes from
+                            }
+                        }
+                    });
+
+                    // Format cell
+                    if (Math.abs(netDebt) < 0.01) {
+                        tableHTML += '<td>$0.00</td>';
+                    } else if (netDebt > 0) {
+                        tableHTML += `<td class="debt-cell positive">$${netDebt.toFixed(2)}</td>`;
+                    } else {
+                        tableHTML += `<td class="debt-cell negative">$${Math.abs(netDebt).toFixed(2)}</td>`;
+                    }
                 }
+            });
+
+            tableHTML += '</tr>';
+        });
+
+        tableHTML += '</tbody></table>';
+        debtMatrixContainer.innerHTML = tableHTML;
+    }
+
+    // ============ PERSONAL DEBT FUNCTIONS ============
+    function settlePersonalDebt(debtId) {
+        const debtIndex = personalDebts.findIndex(d => d.id === debtId);
+        if (debtIndex !== -1) {
+            personalDebts[debtIndex].status = 'settled';
+            personalDebts[debtIndex].settledAt = new Date().toISOString();
+
+            saveData();
+            renderPersonalDebts();
+            calculateBalances();
+
+            // Add to activity feed
+            const debt = personalDebts[debtIndex];
+            addActivity(`${debt.fromName} settled debt of $${debt.amount.toFixed(2)} with ${debt.toName}`);
+
+            // Emit to server if real-time is active
+            if (window.realTime && window.realTime.socket && window.realTime.isConnected) {
+                window.realTime.socket.emit('settle-debt', {
+                    roomId: 'warsan305',
+                    debtId: debtId,
+                    userName: window.realTime.currentUser || 'Anonymous'
+                });
             }
         }
     }
-}
 
-// Initialize when DOM is loaded
-document.addEventListener('DOMContentLoaded', function() {
-    // Wait a bit for app.js to initialize
-    setTimeout(() => {
-        if (!window.realTime) {
-            window.realTime = new RealTimeCollaboration();
+    // ============ DELETE FUNCTIONALITY ============
+    function showDeleteConfirmation(id, type) {
+        itemToDelete = id;
+        deleteType = type;
+
+        // Set message based on type
+        let itemName = '';
+        if (type === 'expense') {
+            const expense = sharedExpenses.find(e => e.id === id);
+            itemName = expense ? expense.name : 'this expense';
+        } else {
+            const debt = personalDebts.find(d => d.id === id);
+            itemName = debt ? debt.description : 'this debt';
         }
-    }, 500);
+
+        document.getElementById('delete-message').textContent =
+            `Are you sure you want to delete "${itemName}"? This action cannot be undone.`;
+
+        deleteConfirmation.classList.add('active');
+        deleteOverlay.classList.add('active');
+    }
+
+    function hideDeleteConfirmation() {
+        deleteConfirmation.classList.remove('active');
+        deleteOverlay.classList.remove('active');
+        itemToDelete = null;
+        deleteType = null;
+    }
+
+    function confirmDelete() {
+        if (itemToDelete && deleteType) {
+            if (deleteType === 'expense') {
+                sharedExpenses = sharedExpenses.filter(e => e.id !== itemToDelete);
+            } else {
+                personalDebts = personalDebts.filter(d => d.id !== itemToDelete);
+            }
+
+            saveData();
+
+            if (deleteType === 'expense') {
+                renderExpenses();
+                calculateBalances();
+                addActivity('Deleted a shared expense');
+            } else {
+                renderPersonalDebts();
+                addActivity('Deleted a personal debt');
+            }
+
+            hideDeleteConfirmation();
+            showAutoSaveIndicator('Item deleted successfully!');
+
+            // Emit to server if real-time is active
+            if (window.realTime && window.realTime.socket && window.realTime.isConnected) {
+                window.realTime.socket.emit('delete-item', {
+                    roomId: 'warsan305',
+                    itemId: itemToDelete,
+                    itemType: deleteType,
+                    userName: window.realTime.currentUser || 'Anonymous'
+                });
+            }
+        }
+    }
+
+    // ============ RESET FUNCTIONALITY ============
+    function showResetConfirmation() {
+        resetConfirmation.classList.add('active');
+    }
+
+    function hideResetConfirmation() {
+        resetConfirmation.classList.remove('active');
+    }
+
+    function resetAllData() {
+        // Clear all data
+        sharedExpenses = [];
+        personalDebts = [];
+        settlements = [];
+        selectedRoommates = new Set(ROOMMATE_IDS);
+
+        // Clear localStorage
+        localStorage.removeItem('warsan305_sharedExpenses');
+        localStorage.removeItem('warsan305_personalDebts');
+
+        // Reset UI
+        renderExpenses();
+        renderPersonalDebts();
+        calculateBalances();
+        setupRoommateTags();
+        updatePaidByOptions();
+
+        // Clear settlement display
+        if (settlementContainer) {
+            settlementContainer.innerHTML = '<p class="no-expenses">Click "Calculate" to see who owes whom (including personal debts)</p>';
+        }
+
+        // Hide circular debt section
+        if (circularDebtSection) {
+            circularDebtSection.style.display = 'none';
+        }
+
+        // Hide confirmation
+        hideResetConfirmation();
+
+        // Show success message
+        showAutoSaveIndicator('All data has been reset!');
+
+        // Add to activity feed
+        addActivity('Reset all data');
+
+        // Emit to server if real-time is active
+        if (window.realTime && window.realTime.socket && window.realTime.isConnected) {
+            window.realTime.socket.emit('reset-data', {
+                roomId: 'warsan305',
+                userName: window.realTime.currentUser || 'Anonymous'
+            });
+        }
+    }
+
+    // ============ DATA PERSISTENCE ============
+    function saveData() {
+        localStorage.setItem('warsan305_sharedExpenses', JSON.stringify(sharedExpenses));
+        localStorage.setItem('warsan305_personalDebts', JSON.stringify(personalDebts));
+    }
+
+    // ============ AUTO-SAVE INDICATOR ============
+    function setupAutoSaveIndicator() {
+        // Auto-save is handled by localStorage, just show indicator on changes
+    }
+
+    function showAutoSaveIndicator(message) {
+        const indicator = document.getElementById('auto-save-indicator');
+        if (indicator) {
+            indicator.innerHTML = `<i class="fas fa-save"></i> ${message}`;
+            indicator.classList.add('show');
+
+            setTimeout(() => {
+                indicator.classList.remove('show');
+            }, 3000);
+        }
+    }
+
+    // ============ ACTIVITY FEED ============
+    function addActivity(message) {
+        const activityFeed = document.getElementById('activity-list');
+        if (!activityFeed) return;
+
+        const activityItem = document.createElement('div');
+        activityItem.className = 'activity-item';
+
+        const now = new Date();
+        const timeString = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+        activityItem.innerHTML = `
+            <div>${message}</div>
+            <div class="activity-time">${timeString}</div>
+        `;
+
+        // Add to top of feed
+        activityFeed.insertBefore(activityItem, activityFeed.firstChild);
+
+        // Limit to 20 activities
+        const activities = activityFeed.querySelectorAll('.activity-item');
+        if (activities.length > 20) {
+            activities[20].remove();
+        }
+    }
+
+    // ============ EXPOSE TO GLOBAL SCOPE ============
+    function exposeToGlobalScope() {
+        // Create a global app instance that realtime.js can access
+        window.appInstance = {
+            // Variables
+            sharedExpenses: sharedExpenses,
+            personalDebts: personalDebts,
+            settlements: settlements,
+            itemToDelete: itemToDelete,
+            deleteType: deleteType,
+            ROOMMATES: ROOMMATES,
+            selectedRoommates: selectedRoommates,
+
+            // Functions
+            addSharedExpense: addSharedExpense,
+            addPersonalDebt: addPersonalDebt,
+            settlePersonalDebt: settlePersonalDebt,
+            calculateSettlements: calculateSettlements,
+            confirmDelete: confirmDelete,
+            resetAllData: resetAllData,
+            saveData: saveData,
+            showAutoSaveIndicator: showAutoSaveIndicator,
+            hideDeleteConfirmation: hideDeleteConfirmation,
+            hideResetConfirmation: hideResetConfirmation,
+            renderExpenses: renderExpenses,
+            renderPersonalDebts: renderPersonalDebts,
+            calculateBalances: calculateBalances,
+            renderSettlements: renderSettlements,
+            setupRoommateTags: setupRoommateTags,
+            updatePaidByOptions: updatePaidByOptions
+        };
+    }
+
+    // ============ INITIALIZE APP ============
+    init();
 });
