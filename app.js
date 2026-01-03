@@ -1,640 +1,864 @@
-// app.js - Warsan 305 Bill Splitter Core Logic
+// app.js - Warsan 305 Bill Splitter Core Logic (Fixed Version)
 
 document.addEventListener('DOMContentLoaded', function() {
     // ============ CONFIGURATION ============
-    const ROOMMATES = ['Abdi', 'Ali', 'Mohamed', 'Hassan', 'Omar', 'Khalid', 'Ahmed'];
-    const ROOM_ID = 'warsan-305';
+    const ROOMMATES = {
+        person1: 'Brian',
+        person2: 'Tessa', 
+        person3: 'Robert',
+        person4: 'Hershey',
+        person5: 'Wilson',
+        person6: 'Joselle',
+        person7: 'Chona'
+    };
+    
+    const ROOMMATE_IDS = Object.keys(ROOMMATES);
+    const ROOMMATE_NAMES = Object.values(ROOMMATES);
     
     // ============ STATE MANAGEMENT ============
-    let expenses = JSON.parse(localStorage.getItem('warsan305_expenses')) || [];
-    let currentUser = localStorage.getItem('warsan305_user') || 
-                     ROOMMATES[Math.floor(Math.random() * ROOMMATES.length)];
-    let currentUserId = localStorage.getItem('warsan305_userId') || 
-                       'user-' + Math.random().toString(36).substr(2, 9);
+    let sharedExpenses = JSON.parse(localStorage.getItem('warsan305_sharedExpenses')) || [];
+    let personalDebts = JSON.parse(localStorage.getItem('warsan305_personalDebts')) || [];
+    let settlements = [];
     
     // ============ DOM ELEMENTS ============
+    // Shared Expense Elements
+    const expenseType = document.getElementById('expense-type');
+    const expenseName = document.getElementById('expense-name');
+    const expenseAmount = document.getElementById('expense-amount');
+    const invoiceDate = document.getElementById('invoice-date');
+    const todayBtn = document.getElementById('today-btn');
+    const paidBy = document.getElementById('paid-by');
+    const addExpenseBtn = document.getElementById('add-expense-btn');
+    
+    // Personal Debt Elements
+    const debtFrom = document.getElementById('debt-from');
+    const debtTo = document.getElementById('debt-to');
+    const debtAmount = document.getElementById('debt-amount');
+    const debtDescription = document.getElementById('debt-description');
+    const debtDate = document.getElementById('debt-date');
+    const debtTodayBtn = document.getElementById('debt-today-btn');
+    const debtNotes = document.getElementById('debt-notes');
+    const addDebtBtn = document.getElementById('add-debt-btn');
+    
+    // Display Elements
     const expenseList = document.getElementById('expense-list');
     const debtList = document.getElementById('debt-list');
-    const totalExpensesEl = document.getElementById('total-expenses');
-    const addExpenseBtn = document.getElementById('add-expense-btn');
-    const settleUpBtn = document.getElementById('settle-up-btn');
-    const expenseModal = document.getElementById('expense-modal');
-    const settleModal = document.getElementById('settle-modal');
-    const addExpenseForm = document.getElementById('add-expense-form');
-    const settleForm = document.getElementById('settle-form');
-    const closeButtons = document.querySelectorAll('.close-btn');
-    const overlay = document.querySelector('.overlay');
-    const userSelection = document.getElementById('user-selection');
-    const expenseDescription = document.getElementById('expense-description');
-    const expenseAmount = document.getElementById('expense-amount');
-    const splitMethod = document.getElementById('split-method');
-    const roommateCheckboxes = document.querySelectorAll('.roommate-checkbox');
-    const currentUserSpan = document.getElementById('current-user');
-    const userNameInput = document.getElementById('user-name');
+    const settlementContainer = document.getElementById('settlement-container');
+    const circularDebtSection = document.getElementById('circular-debt-section');
+    const debtMatrixContainer = document.getElementById('debt-matrix-container');
+    const personalDebtSummary = document.getElementById('personal-debt-summary');
     
-    // Activity feed elements
-    const activityList = document.getElementById('activity-list');
-    const userList = document.getElementById('user-list');
-    const activeUsersPanel = document.getElementById('active-users');
+    // Balance Elements
+    const balanceElements = {
+        person1: document.getElementById('balance1'),
+        person2: document.getElementById('balance2'),
+        person3: document.getElementById('balance3'),
+        person4: document.getElementById('balance4'),
+        person5: document.getElementById('balance5'),
+        person6: document.getElementById('balance6'),
+        person7: document.getElementById('balance7')
+    };
+    
+    // Summary Elements
+    const totalExpensesEl = document.getElementById('total-expenses');
+    const totalPersonalDebtsEl = document.getElementById('total-personal-debts');
+    const sharePerPersonEl = document.getElementById('share-per-person');
+    
+    // Button Elements
+    const calculateBtn = document.getElementById('calculate-btn');
+    const resetBtn = document.getElementById('reset-btn');
+    
+    // Tab Elements
+    const tabs = document.querySelectorAll('.tab');
+    const tabContents = document.querySelectorAll('.tab-content');
+    
+    // Confirmation Dialogs
+    const resetConfirmation = document.getElementById('reset-confirmation');
+    const deleteConfirmation = document.getElementById('delete-confirmation');
+    const deleteOverlay = document.getElementById('delete-overlay');
+    const confirmResetBtn = document.getElementById('confirm-reset-btn');
+    const cancelResetBtn = document.getElementById('cancel-reset-btn');
+    const confirmDeleteBtn = document.getElementById('confirm-delete-btn');
+    const cancelDeleteBtn = document.getElementById('cancel-delete-btn');
+    
+    // Delete State
+    let itemToDelete = null;
+    let deleteType = null; // 'expense' or 'debt'
     
     // ============ INITIALIZATION ============
     function init() {
-        // Set current user
-        currentUserSpan.textContent = currentUser;
-        
-        // Populate user selection dropdown
-        ROOMMATES.forEach(roommate => {
-            const option = document.createElement('option');
-            option.value = roommate;
-            option.textContent = roommate;
-            if (roommate === currentUser) option.selected = true;
-            userSelection.appendChild(option);
-        });
+        // Set today's date
+        setTodayDate();
         
         // Load and render data
         renderExpenses();
-        calculateDebts();
+        renderPersonalDebts();
+        calculateBalances();
         
         // Set up event listeners
         setupEventListeners();
         
-        // Initialize UI state
-        updateSplitOptions();
-        checkSettleButton();
-        
-        // Save user info if not already saved
-        if (!localStorage.getItem('warsan305_user')) {
-            localStorage.setItem('warsan305_user', currentUser);
-            localStorage.setItem('warsan305_userId', currentUserId);
-        }
-        
-        // Add welcome activity
-        addActivity(`${currentUser} joined the room`);
+        // Auto-save indicator
+        setupAutoSaveIndicator();
+    }
+    
+    function setTodayDate() {
+        const today = new Date().toISOString().split('T')[0];
+        invoiceDate.value = today;
+        debtDate.value = today;
     }
     
     // ============ EVENT LISTENERS ============
     function setupEventListeners() {
+        // Today buttons
+        todayBtn.addEventListener('click', () => {
+            invoiceDate.value = new Date().toISOString().split('T')[0];
+        });
+        
+        debtTodayBtn.addEventListener('click', () => {
+            debtDate.value = new Date().toISOString().split('T')[0];
+        });
+        
         // Add Expense button
-        addExpenseBtn.addEventListener('click', () => {
-            expenseModal.style.display = 'block';
-            overlay.style.display = 'block';
+        addExpenseBtn.addEventListener('click', addSharedExpense);
+        
+        // Add Debt button
+        addDebtBtn.addEventListener('click', addPersonalDebt);
+        
+        // Calculate button
+        calculateBtn.addEventListener('click', calculateSettlements);
+        
+        // Reset button
+        resetBtn.addEventListener('click', showResetConfirmation);
+        
+        // Reset confirmation buttons
+        confirmResetBtn.addEventListener('click', resetAllData);
+        cancelResetBtn.addEventListener('click', hideResetConfirmation);
+        
+        // Delete confirmation buttons
+        confirmDeleteBtn.addEventListener('click', confirmDelete);
+        cancelDeleteBtn.addEventListener('click', hideDeleteConfirmation);
+        
+        // Tabs
+        tabs.forEach(tab => {
+            tab.addEventListener('click', () => {
+                const tabId = tab.getAttribute('data-tab');
+                switchTab(tabId);
+            });
         });
         
-        // Settle Up button
-        settleUpBtn.addEventListener('click', () => {
-            settleModal.style.display = 'block';
-            populateSettleForm();
-            overlay.style.display = 'block';
+        // Form submission on Enter key
+        expenseName.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') addSharedExpense();
         });
         
-        // Close buttons
-        closeButtons.forEach(btn => {
-            btn.addEventListener('click', closeModals);
-        });
-        
-        // Overlay click to close
-        overlay.addEventListener('click', closeModals);
-        
-        // Add Expense form submission
-        addExpenseForm.addEventListener('submit', addExpense);
-        
-        // Settle form submission
-        settleForm.addEventListener('submit', settleDebt);
-        
-        // Split method change
-        splitMethod.addEventListener('change', updateSplitOptions);
-        
-        // Roommate checkboxes
-        roommateCheckboxes.forEach(cb => {
-            cb.addEventListener('change', updateSelectedCount);
-        });
-        
-        // Expense amount input validation
-        expenseAmount.addEventListener('input', validateAmount);
-        
-        // User name change
-        userNameInput.addEventListener('change', updateUserName);
-        
-        // Typing indicators for real-time
-        expenseDescription.addEventListener('input', () => {
-            if (window.realtime && window.realtime.sendTypingIndicator) {
-                window.realtime.sendTypingIndicator(true);
-            }
-        });
-        
-        // Show active users panel on click
-        document.querySelector('header h1').addEventListener('click', () => {
-            activeUsersPanel.style.display = 
-                activeUsersPanel.style.display === 'block' ? 'none' : 'block';
+        debtDescription.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') addPersonalDebt();
         });
     }
     
-    // ============ EXPENSE MANAGEMENT ============
-    function addExpense(e) {
-        e.preventDefault();
+    // ============ TAB MANAGEMENT ============
+    function switchTab(tabId) {
+        // Update active tab
+        tabs.forEach(tab => {
+            tab.classList.remove('active');
+            if (tab.getAttribute('data-tab') === tabId) {
+                tab.classList.add('active');
+            }
+        });
         
-        const payer = userSelection.value;
-        const description = expenseDescription.value.trim();
+        // Show active content
+        tabContents.forEach(content => {
+            content.classList.remove('active');
+            if (content.id === `${tabId}-tab`) {
+                content.classList.add('active');
+            }
+        });
+    }
+    
+    // ============ SHARED EXPENSE MANAGEMENT ============
+    function addSharedExpense() {
+        // Get form values
+        const type = expenseType.value;
+        const name = expenseName.value.trim();
         const amount = parseFloat(expenseAmount.value);
-        const splitType = splitMethod.value;
+        const date = invoiceDate.value;
+        const paidByValue = paidBy.value;
         
         // Validation
-        if (!description || !amount || amount <= 0) {
-            alert('Please enter valid expense details');
+        if (!name) {
+            alert('Please enter an expense name');
+            expenseName.focus();
             return;
         }
         
-        // Get selected roommates
-        const selectedRoommates = [];
-        const checkboxes = document.querySelectorAll('.roommate-checkbox:checked');
-        
-        if (checkboxes.length === 0) {
-            alert('Please select at least one roommate to split with');
+        if (!amount || amount <= 0 || isNaN(amount)) {
+            alert('Please enter a valid amount');
+            expenseAmount.focus();
             return;
         }
         
-        checkboxes.forEach(cb => {
-            selectedRoommates.push(cb.value);
-        });
+        if (!date) {
+            alert('Please select a date');
+            invoiceDate.focus();
+            return;
+        }
         
         // Create expense object
         const expense = {
-            id: Date.now().toString(),
-            payer: payer,
-            description: description,
+            id: Date.now(),
+            type: type,
+            name: name,
             amount: amount,
-            date: new Date().toISOString(),
-            splitType: splitType,
-            splitWith: selectedRoommates,
-            createdBy: currentUser,
+            date: date,
+            paidBy: paidByValue,
+            paidByName: ROOMMATES[paidByValue],
             createdAt: new Date().toISOString()
         };
         
         // Add to expenses array
-        expenses.push(expense);
+        sharedExpenses.push(expense);
         
         // Save to localStorage
-        saveExpenses();
+        saveData();
         
-        // Re-render UI
+        // Update UI
         renderExpenses();
-        calculateDebts();
+        calculateBalances();
         
         // Reset form
-        addExpenseForm.reset();
-        updateSplitOptions();
+        expenseName.value = '';
+        expenseAmount.value = '';
         
-        // Close modal
-        closeModals();
+        // Show success message
+        showAutoSaveIndicator('Expense added successfully!');
         
-        // Add activity
-        addActivity(`${currentUser} added expense: ${description} ($${amount.toFixed(2)})`);
-        
-        // Send real-time update
-        if (window.realtime && window.realtime.sendExpenseUpdate) {
-            window.realtime.sendExpenseUpdate({
-                type: 'expense_added',
-                expense: expense,
-                user: currentUser
-            });
-        }
+        // Add to activity feed
+        addActivity(`Added shared expense: ${name} ($${amount.toFixed(2)})`);
     }
     
     function renderExpenses() {
         if (!expenseList) return;
         
+        // Clear current list
         expenseList.innerHTML = '';
         
-        if (expenses.length === 0) {
-            expenseList.innerHTML = '<div class="empty-state">No expenses yet. Add one to get started!</div>';
-            totalExpensesEl.textContent = '0.00';
+        if (sharedExpenses.length === 0) {
+            expenseList.innerHTML = '<div class="no-expenses">No shared expenses added yet</div>';
             return;
         }
         
-        let total = 0;
-        
-        // Sort expenses by date (newest first)
-        const sortedExpenses = [...expenses].sort((a, b) => 
+        // Sort by date (newest first)
+        const sortedExpenses = [...sharedExpenses].sort((a, b) => 
             new Date(b.date) - new Date(a.date)
         );
         
+        // Render each expense
         sortedExpenses.forEach(expense => {
-            total += expense.amount;
+            const expenseItem = document.createElement('div');
+            expenseItem.className = 'expense-item';
+            expenseItem.dataset.id = expense.id;
             
-            const expenseEl = document.createElement('div');
-            expenseEl.className = 'expense-item';
-            expenseEl.innerHTML = `
-                <div class="expense-header">
-                    <span class="expense-description">${expense.description}</span>
-                    <span class="expense-amount">$${expense.amount.toFixed(2)}</span>
-                </div>
+            const formattedDate = new Date(expense.date).toLocaleDateString('en-US', {
+                month: 'short',
+                day: 'numeric',
+                year: 'numeric'
+            });
+            
+            expenseItem.innerHTML = `
                 <div class="expense-details">
-                    <span class="expense-payer"><i class="fas fa-user"></i> Paid by ${expense.payer}</span>
-                    <span class="expense-date"><i class="fas fa-calendar"></i> ${formatDate(expense.date)}</span>
-                    <span class="expense-split"><i class="fas fa-users"></i> Split with ${expense.splitWith.length}</span>
+                    <div class="expense-title">${expense.name}</div>
+                    <div class="expense-meta">
+                        <span>${formattedDate}</span>
+                        <span>•</span>
+                        <span>${expense.type}</span>
+                        <span>•</span>
+                        <span>Paid by ${expense.paidByName}</span>
+                    </div>
                 </div>
-                <div class="expense-actions">
-                    <button class="action-btn delete-btn" data-id="${expense.id}">
-                        <i class="fas fa-trash"></i> Delete
+                <div class="expense-amount-container">
+                    <span class="expense-amount">$${expense.amount.toFixed(2)}</span>
+                    <button class="delete-btn" data-id="${expense.id}" data-type="expense">
+                        <i class="fas fa-trash"></i>
                     </button>
                 </div>
             `;
             
-            expenseList.appendChild(expenseEl);
+            expenseList.appendChild(expenseItem);
         });
-        
-        // Update total
-        totalExpensesEl.textContent = total.toFixed(2);
         
         // Add delete event listeners
-        document.querySelectorAll('.delete-btn').forEach(btn => {
-            btn.addEventListener('click', function() {
-                const expenseId = this.getAttribute('data-id');
-                deleteExpense(expenseId);
+        document.querySelectorAll('.expense-item .delete-btn').forEach(btn => {
+            btn.addEventListener('click', function(e) {
+                e.stopPropagation();
+                const id = parseInt(this.getAttribute('data-id'));
+                showDeleteConfirmation(id, 'expense');
             });
         });
     }
     
-    function deleteExpense(expenseId) {
-        if (confirm('Are you sure you want to delete this expense?')) {
-            const expense = expenses.find(e => e.id === expenseId);
-            expenses = expenses.filter(e => e.id !== expenseId);
-            
-            saveExpenses();
-            renderExpenses();
-            calculateDebts();
-            
-            // Add activity
-            addActivity(`${currentUser} deleted expense: ${expense.description}`);
-            
-            // Send real-time update
-            if (window.realtime && window.realtime.sendExpenseUpdate) {
-                window.realtime.sendExpenseUpdate({
-                    type: 'expense_deleted',
-                    expenseId: expenseId,
-                    user: currentUser
-                });
-            }
+    // ============ PERSONAL DEBT MANAGEMENT ============
+    function addPersonalDebt() {
+        // Get form values
+        const from = debtFrom.value;
+        const to = debtTo.value;
+        const amount = parseFloat(debtAmount.value);
+        const description = debtDescription.value.trim();
+        const date = debtDate.value;
+        const notes = debtNotes.value.trim();
+        
+        // Validation
+        if (from === to) {
+            alert('The debtor and creditor cannot be the same person');
+            return;
         }
+        
+        if (!description) {
+            alert('Please enter a description');
+            debtDescription.focus();
+            return;
+        }
+        
+        if (!amount || amount <= 0 || isNaN(amount)) {
+            alert('Please enter a valid amount');
+            debtAmount.focus();
+            return;
+        }
+        
+        if (!date) {
+            alert('Please select a date');
+            debtDate.focus();
+            return;
+        }
+        
+        // Create debt object
+        const debt = {
+            id: Date.now(),
+            from: from,
+            fromName: ROOMMATES[from],
+            to: to,
+            toName: ROOMMATES[to],
+            amount: amount,
+            description: description,
+            date: date,
+            notes: notes,
+            status: 'pending',
+            createdAt: new Date().toISOString()
+        };
+        
+        // Add to debts array
+        personalDebts.push(debt);
+        
+        // Save to localStorage
+        saveData();
+        
+        // Update UI
+        renderPersonalDebts();
+        
+        // Reset form
+        debtDescription.value = '';
+        debtAmount.value = '';
+        debtNotes.value = '';
+        
+        // Show success message
+        showAutoSaveIndicator('Personal debt added successfully!');
+        
+        // Add to activity feed
+        addActivity(`Added personal debt: ${ROOMMATES[from]} owes ${ROOMMATES[to]} $${amount.toFixed(2)}`);
     }
     
-    // ============ DEBT CALCULATION ============
-    function calculateDebts() {
+    function renderPersonalDebts() {
         if (!debtList) return;
         
-        // Initialize balances
-        const balances = {};
-        ROOMMATES.forEach(roommate => {
-            balances[roommate] = 0;
+        // Clear current list
+        debtList.innerHTML = '';
+        
+        if (personalDebts.length === 0) {
+            debtList.innerHTML = '<div class="no-debts">No personal debts added yet</div>';
+            return;
+        }
+        
+        // Sort by date (newest first)
+        const sortedDebts = [...personalDebts].sort((a, b) => 
+            new Date(b.date) - new Date(a.date)
+        );
+        
+        // Render each debt
+        sortedDebts.forEach(debt => {
+            const debtItem = document.createElement('div');
+            debtItem.className = 'debt-item';
+            debtItem.dataset.id = debt.id;
+            
+            const formattedDate = new Date(debt.date).toLocaleDateString('en-US', {
+                month: 'short',
+                day: 'numeric',
+                year: 'numeric'
+            });
+            
+            const statusBadge = debt.status === 'settled' ? 
+                '<span class="status-badge status-settled">Settled</span>' : 
+                '<span class="status-badge status-pending">Pending</span>';
+            
+            debtItem.innerHTML = `
+                <div class="debt-details">
+                    <div class="debt-title">${debt.description}</div>
+                    <div class="debt-meta">
+                        <span>${formattedDate}</span>
+                        <span>•</span>
+                        <span>${debt.fromName} → ${debt.toName}</span>
+                        ${debt.notes ? '<span>•</span><span>Note: ' + debt.notes + '</span>' : ''}
+                    </div>
+                </div>
+                <div class="debt-amount-container">
+                    <span class="debt-amount">$${debt.amount.toFixed(2)}</span>
+                    ${debt.status === 'pending' ? 
+                        `<button class="settle-debt-btn" data-id="${debt.id}">Settle</button>` : 
+                        ''}
+                    <button class="delete-btn" data-id="${debt.id}" data-type="debt">
+                        <i class="fas fa-trash"></i>
+                    </button>
+                </div>
+            `;
+            
+            debtList.appendChild(debtItem);
         });
         
-        // Calculate balances
-        expenses.forEach(expense => {
-            const payer = expense.payer;
-            const amount = expense.amount;
-            const splitWith = expense.splitWith;
-            
-            if (splitWith.length === 0) return;
-            
-            const share = amount / splitWith.length;
-            
-            // Payer gets positive balance (money to receive)
-            balances[payer] += amount;
-            
-            // Each split person gets negative balance (money to pay)
-            splitWith.forEach(person => {
-                if (person !== payer) { // Don't pay yourself
-                    balances[person] -= share;
-                } else {
-                    // If payer is also in split, they effectively pay less
-                    balances[payer] -= share;
-                }
+        // Add event listeners
+        document.querySelectorAll('.debt-item .delete-btn').forEach(btn => {
+            btn.addEventListener('click', function(e) {
+                e.stopPropagation();
+                const id = parseInt(this.getAttribute('data-id'));
+                showDeleteConfirmation(id, 'debt');
             });
         });
         
-        // Calculate debts
-        const debts = [];
+        document.querySelectorAll('.settle-debt-btn').forEach(btn => {
+            btn.addEventListener('click', function(e) {
+                e.stopPropagation();
+                const id = parseInt(this.getAttribute('data-id'));
+                settlePersonalDebt(id);
+            });
+        });
+    }
+    
+    // ============ BALANCE CALCULATION ============
+    function calculateBalances() {
+        // Reset all balances to 0
+        const balances = {};
+        ROOMMATE_IDS.forEach(id => {
+            balances[id] = 0;
+        });
+        
+        // Calculate from shared expenses
+        sharedExpenses.forEach(expense => {
+            const amount = expense.amount;
+            const paidBy = expense.paidBy;
+            
+            // Each person owes 1/7 of the expense
+            const sharePerPerson = amount / 7;
+            
+            // The payer paid the full amount, so they get credited
+            balances[paidBy] += amount;
+            
+            // Everyone (including payer) owes their share
+            ROOMMATE_IDS.forEach(id => {
+                balances[id] -= sharePerPerson;
+            });
+        });
+        
+        // Calculate from personal debts
+        personalDebts.forEach(debt => {
+            if (debt.status === 'pending') {
+                balances[debt.from] -= debt.amount;
+                balances[debt.to] += debt.amount;
+            }
+        });
+        
+        // Update UI
+        ROOMMATE_IDS.forEach(id => {
+            const balance = balances[id];
+            const element = balanceElements[id];
+            if (element) {
+                element.textContent = `$${balance.toFixed(2)}`;
+                element.className = balance >= 0 ? 'positive' : 'negative';
+            }
+        });
+        
+        // Update summary
+        updateSummary(balances);
+    }
+    
+    function updateSummary(balances) {
+        // Calculate totals
+        const totalExpenses = sharedExpenses.reduce((sum, expense) => sum + expense.amount, 0);
+        const totalPersonalDebts = personalDebts
+            .filter(debt => debt.status === 'pending')
+            .reduce((sum, debt) => sum + debt.amount, 0);
+        
+        // Calculate share per person (from shared expenses only)
+        const sharePerPerson = sharedExpenses.length > 0 ? totalExpenses / 7 : 0;
+        
+        // Update UI
+        totalExpensesEl.textContent = `$${totalExpenses.toFixed(2)}`;
+        totalPersonalDebtsEl.textContent = `$${totalPersonalDebts.toFixed(2)}`;
+        sharePerPersonEl.textContent = `$${sharePerPerson.toFixed(2)}`;
+    }
+    
+    // ============ SETTLEMENT CALCULATION ============
+    function calculateSettlements() {
+        // First calculate balances
+        const balances = {};
+        ROOMMATE_IDS.forEach(id => {
+            balances[id] = 0;
+        });
+        
+        // Calculate from shared expenses
+        sharedExpenses.forEach(expense => {
+            const amount = expense.amount;
+            const paidBy = expense.paidBy;
+            
+            const sharePerPerson = amount / 7;
+            
+            balances[paidBy] += amount;
+            ROOMMATE_IDS.forEach(id => {
+                balances[id] -= sharePerPerson;
+            });
+        });
+        
+        // Calculate from personal debts
+        personalDebts.forEach(debt => {
+            if (debt.status === 'pending') {
+                balances[debt.from] -= debt.amount;
+                balances[debt.to] += debt.amount;
+            }
+        });
+        
+        // Separate debtors and creditors
         const debtors = [];
         const creditors = [];
         
-        // Separate debtors and creditors
-        Object.entries(balances).forEach(([person, balance]) => {
-            if (balance < 0) {
-                debtors.push({ person, amount: Math.abs(balance) });
-            } else if (balance > 0) {
-                creditors.push({ person, amount: balance });
+        ROOMMATE_IDS.forEach(id => {
+            const balance = balances[id];
+            if (balance < -0.01) { // Debtor (owes money)
+                debtors.push({
+                    id: id,
+                    name: ROOMMATES[id],
+                    amount: Math.abs(balance)
+                });
+            } else if (balance > 0.01) { // Creditor (owed money)
+                creditors.push({
+                    id: id,
+                    name: ROOMMATES[id],
+                    amount: balance
+                });
             }
         });
         
-        // Match debtors to creditors
+        // Sort by amount (largest first)
         debtors.sort((a, b) => b.amount - a.amount);
         creditors.sort((a, b) => b.amount - a.amount);
         
-        let dIdx = 0, cIdx = 0;
+        // Calculate settlements
+        settlements = [];
+        let debtorIndex = 0;
+        let creditorIndex = 0;
         
-        while (dIdx < debtors.length && cIdx < creditors.length) {
-            const debtor = debtors[dIdx];
-            const creditor = creditors[cIdx];
+        while (debtorIndex < debtors.length && creditorIndex < creditors.length) {
+            const debtor = debtors[debtorIndex];
+            const creditor = creditors[creditorIndex];
             
-            const debtAmount = Math.min(debtor.amount, creditor.amount);
+            const amountToSettle = Math.min(debtor.amount, creditor.amount);
             
-            if (debtAmount > 0.01) { // Ignore tiny amounts
-                debts.push({
-                    from: debtor.person,
-                    to: creditor.person,
-                    amount: debtAmount
+            if (amountToSettle > 0.01) { // Only add if amount is significant
+                settlements.push({
+                    from: debtor.id,
+                    fromName: debtor.name,
+                    to: creditor.id,
+                    toName: creditor.name,
+                    amount: amountToSettle
                 });
+                
+                // Update remaining amounts
+                debtor.amount -= amountToSettle;
+                creditor.amount -= amountToSettle;
             }
             
-            debtor.amount -= debtAmount;
-            creditor.amount -= debtAmount;
-            
-            if (debtor.amount < 0.01) dIdx++;
-            if (creditor.amount < 0.01) cIdx++;
+            // Move to next debtor/creditor if settled
+            if (debtor.amount < 0.01) debtorIndex++;
+            if (creditor.amount < 0.01) creditorIndex++;
         }
         
-        // Render debts
-        renderDebts(debts);
-        checkSettleButton();
+        // Update UI
+        renderSettlements();
+        renderDebtMatrix(balances);
+        
+        // Show circular debt section
+        circularDebtSection.style.display = 'block';
+        
+        // Show success message
+        showAutoSaveIndicator('Settlements calculated successfully!');
+        
+        // Add to activity feed
+        addActivity('Calculated settlement plan');
     }
     
-    function renderDebts(debts) {
-        debtList.innerHTML = '';
+    function renderSettlements() {
+        if (!settlementContainer) return;
         
-        if (debts.length === 0) {
-            debtList.innerHTML = '<div class="empty-state">All settled up! No debts.</div>';
+        // Clear current content
+        settlementContainer.innerHTML = '';
+        
+        if (settlements.length === 0) {
+            settlementContainer.innerHTML = '<p class="no-expenses">All balances are settled!</p>';
             return;
         }
         
-        debts.forEach(debt => {
-            const debtEl = document.createElement('div');
-            debtEl.className = 'debt-item';
-            debtEl.innerHTML = `
-                <div class="debt-details">
-                    <span class="debt-from"><i class="fas fa-arrow-right"></i> ${debt.from}</span>
-                    <span class="debt-to"><i class="fas fa-arrow-right"></i> ${debt.to}</span>
-                    <span class="debt-amount">$${debt.amount.toFixed(2)}</span>
-                </div>
+        // Create settlement list
+        const settlementList = document.createElement('ul');
+        settlementList.className = 'settlement-list';
+        
+        settlements.forEach(settlement => {
+            const listItem = document.createElement('li');
+            listItem.innerHTML = `
+                <i class="fas fa-arrow-right"></i>
+                <strong>${settlement.fromName}</strong> should pay 
+                <strong>${settlement.toName}</strong> 
+                <strong>$${settlement.amount.toFixed(2)}</strong>
             `;
-            debtList.appendChild(debtEl);
-        });
-    }
-    
-    // ============ SETTLE UP FUNCTIONALITY ============
-    function populateSettleForm() {
-        const settleTo = document.getElementById('settle-to');
-        const settleAmount = document.getElementById('settle-amount');
-        
-        // Find debts involving current user
-        const userDebts = [];
-        
-        // Simple calculation for demo - in reality, use the same logic as calculateDebts
-        const settleOptions = document.getElementById('settle-options');
-        settleOptions.innerHTML = '';
-        
-        // Add option for each roommate (except self)
-        ROOMMATES.forEach(roommate => {
-            if (roommate !== currentUser) {
-                const option = document.createElement('option');
-                option.value = roommate;
-                option.textContent = roommate;
-                settleOptions.appendChild(option);
-            }
+            settlementList.appendChild(listItem);
         });
         
-        settleTo.value = ROOMMATES.find(r => r !== currentUser) || ROOMMATES[0];
-        settleAmount.value = '';
+        settlementContainer.appendChild(settlementList);
+        
+        // Add summary
+        const totalSettlement = settlements.reduce((sum, s) => sum + s.amount, 0);
+        const summary = document.createElement('div');
+        summary.className = 'settlement-summary';
+        summary.innerHTML = `
+            <p><strong>Total to be transferred:</strong> $${totalSettlement.toFixed(2)}</p>
+            <p><strong>Number of transactions:</strong> ${settlements.length}</p>
+            <p>This minimizes the total number of payments needed to settle all balances.</p>
+        `;
+        settlementContainer.appendChild(summary);
     }
     
-    function settleDebt(e) {
-        e.preventDefault();
+    function renderDebtMatrix(balances) {
+        if (!debtMatrixContainer) return;
         
-        const to = document.getElementById('settle-to').value;
-        const amount = parseFloat(document.getElementById('settle-amount').value);
-        const description = document.getElementById('settle-description').value || 'Settlement';
+        // Create matrix table
+        let tableHTML = `
+            <table class="debt-matrix">
+            <thead>
+                <tr>
+                    <th></th>
+        `;
         
-        if (!amount || amount <= 0) {
-            alert('Please enter a valid amount');
-            return;
-        }
+        // Header row with names
+        ROOMMATE_IDS.forEach(id => {
+            tableHTML += `<th>${ROOMMATES[id]}</th>`;
+        });
         
-        // Create settlement as a negative expense
-        const settlement = {
-            id: 'settle-' + Date.now(),
-            payer: currentUser,
-            description: `Settlement: ${description}`,
-            amount: -amount,
-            date: new Date().toISOString(),
-            splitType: 'equal',
-            splitWith: [to],
-            createdBy: currentUser,
-            createdAt: new Date().toISOString(),
-            isSettlement: true
-        };
+        tableHTML += '</tr></thead><tbody>';
         
-        expenses.push(settlement);
-        saveExpenses();
-        
-        // Recalculate
-        renderExpenses();
-        calculateDebts();
-        
-        // Close modal
-        closeModals();
-        
-        // Add activity
-        addActivity(`${currentUser} settled $${amount.toFixed(2)} with ${to}`);
-        
-        // Send real-time update
-        if (window.realtime && window.realtime.sendExpenseUpdate) {
-            window.realtime.sendExpenseUpdate({
-                type: 'settlement',
-                from: currentUser,
-                to: to,
-                amount: amount,
-                user: currentUser
-            });
-        }
-    }
-    
-    function checkSettleButton() {
-        if (!settleUpBtn) return;
-        
-        // Enable/disable based on whether there are debts
-        const hasDebts = debtList && !debtList.querySelector('.empty-state');
-        settleUpBtn.disabled = !hasDebts;
-        settleUpBtn.title = hasDebts ? 'Settle debts' : 'No debts to settle';
-    }
-    
-    // ============ UI HELPER FUNCTIONS ============
-    function updateSplitOptions() {
-        const splitType = splitMethod.value;
-        const checkboxesContainer = document.querySelector('.roommate-checkboxes');
-        
-        if (splitType === 'equal') {
-            // Auto-check all roommates
-            roommateCheckboxes.forEach(cb => {
-                cb.checked = true;
-                cb.disabled = false;
-            });
-        } else if (splitType === 'custom') {
-            // Enable all checkboxes
-            roommateCheckboxes.forEach(cb => {
-                cb.disabled = false;
-            });
-        }
-        
-        updateSelectedCount();
-    }
-    
-    function updateSelectedCount() {
-        const selectedCount = document.querySelectorAll('.roommate-checkbox:checked').length;
-        const countDisplay = document.getElementById('selected-count') || 
-                           (() => {
-                               const span = document.createElement('span');
-                               span.id = 'selected-count';
-                               document.querySelector('.split-section').appendChild(span);
-                               return span;
-                           })();
-        
-        countDisplay.textContent = ` (${selectedCount} selected)`;
-        countDisplay.style.marginLeft = '5px';
-        countDisplay.style.color = 'var(--primary-color)';
-    }
-    
-    function validateAmount() {
-        const value = expenseAmount.value;
-        if (value && parseFloat(value) < 0) {
-            expenseAmount.value = Math.abs(parseFloat(value));
-        }
-    }
-    
-    function updateUserName() {
-        const newName = userNameInput.value.trim();
-        if (newName && ROOMMATES.includes(newName)) {
-            const oldName = currentUser;
-            currentUser = newName;
-            currentUserSpan.textContent = newName;
+        // Create matrix rows
+        ROOMMATE_IDS.forEach(fromId => {
+            tableHTML += `<tr><th>${ROOMMATES[fromId]}</th>`;
             
-            localStorage.setItem('warsan305_user', newName);
-            
-            // Add activity
-            addActivity(`${oldName} changed name to ${newName}`);
-            
-            // Update all expenses by this user
-            expenses.forEach(expense => {
-                if (expense.createdBy === oldName) {
-                    expense.createdBy = newName;
+            ROOMMATE_IDS.forEach(toId => {
+                if (fromId === toId) {
+                    tableHTML += '<td class="diagonal-cell">-</td>';
+                } else {
+                    // Calculate net debt between these two people
+                    let netDebt = 0;
+                    
+                    // Check personal debts
+                    personalDebts.forEach(debt => {
+                        if (debt.status === 'pending') {
+                            if (debt.from === fromId && debt.to === toId) {
+                                netDebt -= debt.amount; // from owes to
+                            } else if (debt.from === toId && debt.to === fromId) {
+                                netDebt += debt.amount; // to owes from
+                            }
+                        }
+                    });
+                    
+                    // Format cell
+                    if (Math.abs(netDebt) < 0.01) {
+                        tableHTML += '<td>$0.00</td>';
+                    } else if (netDebt > 0) {
+                        tableHTML += `<td class="debt-cell positive">$${netDebt.toFixed(2)}</td>`;
+                    } else {
+                        tableHTML += `<td class="debt-cell negative">$${Math.abs(netDebt).toFixed(2)}</td>`;
+                    }
                 }
-                if (expense.payer === oldName) {
-                    expense.payer = newName;
-                }
-                expense.splitWith = expense.splitWith.map(p => 
-                    p === oldName ? newName : p
-                );
             });
             
-            saveExpenses();
-            renderExpenses();
-            calculateDebts();
+            tableHTML += '</tr>';
+        });
+        
+        tableHTML += '</tbody></table>';
+        debtMatrixContainer.innerHTML = tableHTML;
+    }
+    
+    // ============ PERSONAL DEBT FUNCTIONS ============
+    function settlePersonalDebt(debtId) {
+        const debtIndex = personalDebts.findIndex(d => d.id === debtId);
+        if (debtIndex !== -1) {
+            personalDebts[debtIndex].status = 'settled';
+            personalDebts[debtIndex].settledAt = new Date().toISOString();
+            
+            saveData();
+            renderPersonalDebts();
+            calculateBalances();
+            
+            // Add to activity feed
+            const debt = personalDebts[debtIndex];
+            addActivity(`${debt.fromName} settled debt of $${debt.amount.toFixed(2)} with ${debt.toName}`);
+        }
+    }
+    
+    // ============ DELETE FUNCTIONALITY ============
+    function showDeleteConfirmation(id, type) {
+        itemToDelete = id;
+        deleteType = type;
+        
+        // Set message based on type
+        let itemName = '';
+        if (type === 'expense') {
+            const expense = sharedExpenses.find(e => e.id === id);
+            itemName = expense ? expense.name : 'this expense';
         } else {
-            alert('Please select a valid roommate name');
-            userNameInput.value = currentUser;
+            const debt = personalDebts.find(d => d.id === id);
+            itemName = debt ? debt.description : 'this debt';
+        }
+        
+        document.getElementById('delete-message').textContent = 
+            `Are you sure you want to delete "${itemName}"? This action cannot be undone.`;
+        
+        deleteConfirmation.classList.add('active');
+        deleteOverlay.classList.add('active');
+    }
+    
+    function hideDeleteConfirmation() {
+        deleteConfirmation.classList.remove('active');
+        deleteOverlay.classList.remove('active');
+        itemToDelete = null;
+        deleteType = null;
+    }
+    
+    function confirmDelete() {
+        if (itemToDelete && deleteType) {
+            if (deleteType === 'expense') {
+                sharedExpenses = sharedExpenses.filter(e => e.id !== itemToDelete);
+            } else {
+                personalDebts = personalDebts.filter(d => d.id !== itemToDelete);
+            }
+            
+            saveData();
+            
+            if (deleteType === 'expense') {
+                renderExpenses();
+                calculateBalances();
+                addActivity('Deleted a shared expense');
+            } else {
+                renderPersonalDebts();
+                addActivity('Deleted a personal debt');
+            }
+            
+            hideDeleteConfirmation();
+            showAutoSaveIndicator('Item deleted successfully!');
         }
     }
     
-    function closeModals() {
-        expenseModal.style.display = 'none';
-        settleModal.style.display = 'none';
-        overlay.style.display = 'none';
+    // ============ RESET FUNCTIONALITY ============
+    function showResetConfirmation() {
+        resetConfirmation.classList.add('active');
     }
     
-    function formatDate(dateString) {
-        const date = new Date(dateString);
-        return date.toLocaleDateString('en-US', {
-            month: 'short',
-            day: 'numeric',
-            hour: '2-digit',
-            minute: '2-digit'
-        });
+    function hideResetConfirmation() {
+        resetConfirmation.classList.remove('active');
     }
     
-    function saveExpenses() {
-        localStorage.setItem('warsan305_expenses', JSON.stringify(expenses));
+    function resetAllData() {
+        // Clear all data
+        sharedExpenses = [];
+        personalDebts = [];
+        settlements = [];
+        
+        // Clear localStorage
+        localStorage.removeItem('warsan305_sharedExpenses');
+        localStorage.removeItem('warsan305_personalDebts');
+        
+        // Reset UI
+        renderExpenses();
+        renderPersonalDebts();
+        calculateBalances();
+        
+        // Clear settlement display
+        settlementContainer.innerHTML = '<p class="no-expenses">Click "Calculate" to see who owes whom (including personal debts)</p>';
+        
+        // Hide circular debt section
+        circularDebtSection.style.display = 'none';
+        
+        // Hide confirmation
+        hideResetConfirmation();
+        
+        // Show success message
+        showAutoSaveIndicator('All data has been reset!');
+        
+        // Add to activity feed
+        addActivity('Reset all data');
+    }
+    
+    // ============ DATA PERSISTENCE ============
+    function saveData() {
+        localStorage.setItem('warsan305_sharedExpenses', JSON.stringify(sharedExpenses));
+        localStorage.setItem('warsan305_personalDebts', JSON.stringify(personalDebts));
+    }
+    
+    // ============ AUTO-SAVE INDICATOR ============
+    function setupAutoSaveIndicator() {
+        // Auto-save is handled by localStorage, just show indicator on changes
+    }
+    
+    function showAutoSaveIndicator(message) {
+        const indicator = document.getElementById('auto-save-indicator');
+        if (indicator) {
+            indicator.innerHTML = `<i class="fas fa-save"></i> ${message}`;
+            indicator.classList.add('show');
+            
+            setTimeout(() => {
+                indicator.classList.remove('show');
+            }, 3000);
+        }
     }
     
     // ============ ACTIVITY FEED ============
     function addActivity(message) {
-        if (!activityList) return;
+        const activityFeed = document.getElementById('activity-list');
+        if (!activityFeed) return;
         
         const activityItem = document.createElement('div');
         activityItem.className = 'activity-item';
+        
+        const now = new Date();
+        const timeString = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        
         activityItem.innerHTML = `
             <div>${message}</div>
-            <div class="activity-time">${new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</div>
+            <div class="activity-time">${timeString}</div>
         `;
         
-        activityList.prepend(activityItem);
+        // Add to top of feed
+        activityFeed.insertBefore(activityItem, activityFeed.firstChild);
         
-        // Keep only last 20 activities
-        const activities = activityList.querySelectorAll('.activity-item');
+        // Limit to 20 activities
+        const activities = activityFeed.querySelectorAll('.activity-item');
         if (activities.length > 20) {
-            activities[activities.length - 1].remove();
+            activities[20].remove();
         }
-    }
-    
-    // ============ REAL-TIME INTEGRATION ============
-    // These functions will be called by realtime.js
-    window.updateExpensesFromServer = function(newExpenses) {
-        expenses = newExpenses;
-        saveExpenses();
-        renderExpenses();
-        calculateDebts();
-    };
-    
-    window.addServerActivity = function(activity) {
-        addActivity(activity);
-    };
-    
-    window.updateActiveUsers = function(users) {
-        if (!userList) return;
-        
-        userList.innerHTML = '';
-        users.forEach(user => {
-            const li = document.createElement('li');
-            const firstLetter = user.name.charAt(0).toUpperCase();
-            const color = stringToColor(user.name);
-            
-            li.innerHTML = `
-                <div class="user-avatar" style="background-color: ${color}">${firstLetter}</div>
-                <div>
-                    <strong>${user.name}</strong>
-                    ${user.isTyping ? '<span class="user-typing">typing...</span>' : ''}
-                </div>
-            `;
-            userList.appendChild(li);
-        });
-    };
-    
-    // Helper function to generate color from string
-    function stringToColor(str) {
-        let hash = 0;
-        for (let i = 0; i < str.length; i++) {
-            hash = str.charCodeAt(i) + ((hash << 5) - hash);
-        }
-        
-        const colors = [
-            '#3498db', '#2ecc71', '#e74c3c', '#f39c12', 
-            '#9b59b6', '#1abc9c', '#d35400'
-        ];
-        
-        return colors[Math.abs(hash) % colors.length];
     }
     
     // ============ INITIALIZE APP ============
     init();
-    
-    // Make currentUser available globally for realtime.js
-    window.currentUser = currentUser;
-    window.currentUserId = currentUserId;
 });
