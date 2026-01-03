@@ -150,6 +150,88 @@
             color: rgba(236, 240, 241, 0.6);
         }
 
+        /* Checkbox styles for include/exclude section */
+        .checkbox-controls {
+            margin-bottom: 10px;
+        }
+
+        .select-all-container {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 10px;
+            padding: 8px 12px;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 6px;
+            border-left: 3px solid var(--primary-color);
+        }
+
+        .select-all-container input[type="checkbox"] {
+            width: 18px;
+            height: 18px;
+            margin: 0;
+        }
+
+        .select-all-container label {
+            margin-bottom: 0;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 0.95rem;
+            color: var(--primary-color);
+        }
+
+        .checkbox-group {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+            gap: 10px;
+            margin-top: 10px;
+        }
+
+        .checkbox-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 12px;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 8px;
+            transition: all 0.3s;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .checkbox-item:hover {
+            background: rgba(255, 255, 255, 0.1);
+            transform: translateY(-2px);
+        }
+
+        .checkbox-item input[type="checkbox"] {
+            width: 18px;
+            height: 18px;
+            margin: 0;
+            accent-color: var(--primary-color);
+        }
+
+        .checkbox-item label {
+            margin-bottom: 0;
+            cursor: pointer;
+            font-size: 0.95rem;
+            flex-grow: 1;
+        }
+
+        /* Expense display styles */
+        .expense-included {
+            margin-top: 8px;
+            font-size: 0.85rem;
+            color: #95a5a6;
+            line-height: 1.4;
+        }
+
+        .expense-share {
+            margin-top: 4px;
+            font-size: 0.85rem;
+            color: #bdc3c7;
+            font-weight: 500;
+        }
+
         .btn {
             background: var(--primary-color);
             color: white;
@@ -425,96 +507,6 @@
         .person-5 { background-color: #9b59b6; }
         .person-6 { background-color: #1abc9c; }
         .person-7 { background-color: #e67e22; }
-
-        /* Split Options Styles */
-        .split-options {
-            background: rgba(255, 255, 255, 0.05);
-            border: 1px solid var(--border-color);
-            border-radius: 8px;
-            padding: 15px;
-            margin-top: 8px;
-        }
-
-        .split-options-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 10px;
-        }
-
-        .split-options-title {
-            font-weight: 600;
-            font-size: 0.95rem;
-            color: var(--text-color);
-        }
-
-        .split-controls {
-            display: flex;
-            gap: 8px;
-        }
-
-        .split-control-btn {
-            background: var(--primary-color);
-            color: white;
-            border: none;
-            padding: 6px 10px;
-            border-radius: 4px;
-            cursor: pointer;
-            font-size: 0.8rem;
-            transition: background 0.3s;
-            touch-action: manipulation;
-        }
-
-        .split-control-btn:hover {
-            background: #4a89dc;
-        }
-
-        .split-options-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-            gap: 10px;
-            margin-top: 10px;
-        }
-
-        .split-option {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            padding: 8px;
-            border-radius: 6px;
-            background: rgba(255, 255, 255, 0.03);
-            transition: background 0.3s;
-            cursor: pointer;
-        }
-
-        .split-option:hover {
-            background: rgba(255, 255, 255, 0.08);
-        }
-
-        .split-option input[type="checkbox"] {
-            width: 18px;
-            height: 18px;
-            cursor: pointer;
-            accent-color: var(--primary-color);
-        }
-
-        .split-option label {
-            margin-bottom: 0;
-            font-weight: normal;
-            cursor: pointer;
-            flex-grow: 1;
-        }
-
-        .split-count {
-            display: inline-block;
-            margin-left: 8px;
-            background: var(--primary-color);
-            color: white;
-            padding: 2px 6px;
-            border-radius: 10px;
-            font-size: 0.75rem;
-            font-weight: 600;
-        }
 
         .reset-confirmation {
             background: var(--card-color);
@@ -1196,6 +1188,20 @@
                 gap: 15px;
             }
 
+            .checkbox-group {
+                grid-template-columns: repeat(2, 1fr);
+                gap: 8px;
+            }
+            
+            .checkbox-item {
+                padding: 8px;
+                font-size: 0.9rem;
+            }
+            
+            .select-all-container {
+                padding: 6px 10px;
+            }
+
             .button-group {
                 flex-direction: column;
             }
@@ -1307,20 +1313,6 @@
                 font-size: 0.9rem;
             }
 
-            .split-options-grid {
-                grid-template-columns: repeat(2, 1fr);
-            }
-
-            .split-controls {
-                flex-direction: column;
-                gap: 5px;
-            }
-
-            .split-control-btn {
-                width: 100%;
-                padding: 8px;
-            }
-
             .backup-buttons {
                 flex-direction: column;
             }
@@ -1390,6 +1382,14 @@
                 font-size: 0.85rem;
             }
 
+            .checkbox-group {
+                grid-template-columns: 1fr;
+            }
+            
+            .checkbox-item {
+                padding: 8px 10px;
+            }
+
             .debt-matrix th, .debt-matrix td {
                 min-width: 60px;
                 padding: 5px 3px;
@@ -1427,10 +1427,6 @@
                 content: '' !important;
             }
 
-            .split-options-grid {
-                grid-template-columns: 1fr;
-            }
-
             /* Real-time elements extra small adjustments */
             .active-users {
                 max-width: 180px;
@@ -1453,6 +1449,11 @@
 
             .card {
                 padding: 15px;
+            }
+            
+            .checkbox-item {
+                padding: 6px 8px;
+                font-size: 0.85rem;
             }
         }
 
@@ -1503,6 +1504,24 @@
                 border-color: var(--primary-color);
                 box-shadow: 0 0 0 3px rgba(93, 156, 236, 0.15);
             }
+            
+            .checkbox-item {
+                background-color: #f8f9fa;
+                border-color: #e1e8ed;
+            }
+            
+            .checkbox-item:hover {
+                background-color: #e9ecef;
+            }
+            
+            .select-all-container {
+                background-color: #f8f9fa;
+                border-left-color: var(--primary-color);
+            }
+            
+            .select-all-container label {
+                color: var(--primary-color);
+            }
 
             .person-list li, .expense-item:nth-child(even), .debt-item:nth-child(even) {
                 background-color: #f8f9fa;
@@ -1531,24 +1550,15 @@
             .expense-meta, .debt-meta {
                 color: #666;
             }
+            
+            .expense-included, .expense-share {
+                color: #666;
+            }
 
             .backup-info, .excel-options {
                 background-color: #f8f9fa;
                 color: #666;
                 border-left: 4px solid #95a5a6;
-            }
-
-            .split-options {
-                background-color: #f8f9fa;
-                border-color: #ddd;
-            }
-
-            .split-option {
-                background-color: #f0f0f0;
-            }
-
-            .split-option:hover {
-                background-color: #e8e8e8;
             }
 
             /* Real-time elements light mode */
@@ -1565,7 +1575,7 @@
 
         /* Print styles */
         @media print {
-            .btn, .delete-btn, .settle-debt-btn, .today-btn, .tabs, .backup-section, .auto-save-indicator, .excel-loading {
+            .btn, .delete-btn, .settle-debt-btn, .today-btn, .tabs, .backup-section, .auto-save-indicator, .excel-loading, .checkbox-group, .select-all-container, #include-exclude-section {
                 display: none !important;
             }
 
@@ -1658,6 +1668,19 @@
                     </div>
                 </div>
 
+                <div class="input-group" id="include-exclude-section">
+                    <label>Include/Exclude Roommates from this Expense</label>
+                    <div class="checkbox-controls">
+                        <div class="select-all-container">
+                            <input type="checkbox" id="select-all-checkbox" checked>
+                            <label for="select-all-checkbox">Select/Deselect All</label>
+                        </div>
+                    </div>
+                    <div id="roommate-checkboxes" class="checkbox-group">
+                        <!-- Checkboxes will be dynamically generated -->
+                    </div>
+                </div>
+
                 <div class="input-group">
                     <label for="paid-by">Paid By</label>
                     <select id="paid-by">
@@ -1669,49 +1692,6 @@
                         <option value="person6">Joselle</option>
                         <option value="person7">Chona</option>
                     </select>
-                </div>
-
-                <div class="input-group">
-                    <label>Split Between <span id="split-count" class="split-count">7 selected</span></label>
-                    <div class="split-options">
-                        <div class="split-options-header">
-                            <div class="split-options-title">Select roommates to include in this expense:</div>
-                            <div class="split-controls">
-                                <button type="button" id="select-all-btn" class="split-control-btn">Select All</button>
-                                <button type="button" id="deselect-all-btn" class="split-control-btn">Deselect All</button>
-                            </div>
-                        </div>
-                        <div class="split-options-grid">
-                            <div class="split-option">
-                                <input type="checkbox" id="split-person1" value="person1" checked>
-                                <label for="split-person1"><span class="person-color person-1"></span>Brian</label>
-                            </div>
-                            <div class="split-option">
-                                <input type="checkbox" id="split-person2" value="person2" checked>
-                                <label for="split-person2"><span class="person-color person-2"></span>Tessa</label>
-                            </div>
-                            <div class="split-option">
-                                <input type="checkbox" id="split-person3" value="person3" checked>
-                                <label for="split-person3"><span class="person-color person-3"></span>Robert</label>
-                            </div>
-                            <div class="split-option">
-                                <input type="checkbox" id="split-person4" value="person4" checked>
-                                <label for="split-person4"><span class="person-color person-4"></span>Hershey</label>
-                            </div>
-                            <div class="split-option">
-                                <input type="checkbox" id="split-person5" value="person5" checked>
-                                <label for="split-person5"><span class="person-color person-5"></span>Wilson</label>
-                            </div>
-                            <div class="split-option">
-                                <input type="checkbox" id="split-person6" value="person6" checked>
-                                <label for="split-person6"><span class="person-color person-6"></span>Joselle</label>
-                            </div>
-                            <div class="split-option">
-                                <input type="checkbox" id="split-person7" value="person7" checked>
-                                <label for="split-person7"><span class="person-color person-7"></span>Chona</label>
-                            </div>
-                        </div>
-                    </div>
                 </div>
 
                 <button id="add-expense-btn" class="btn"><i class="fas fa-plus"></i> Add Shared Expense</button>
@@ -1882,7 +1862,7 @@
             <strong>Total Personal Debts:</strong> <span id="total-personal-debts">$0.00</span>
         </div>
         <div>
-            <strong>Average Share per Person:</strong> <span id="share-per-person">$0.00</span>
+            <strong>Share per Person:</strong> <span id="share-per-person">$0.00</span>
         </div>
     </div>
 
