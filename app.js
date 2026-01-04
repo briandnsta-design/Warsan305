@@ -271,25 +271,47 @@ document.addEventListener('DOMContentLoaded', function() {
             });
         }
 
-        // Add Expense button
-        addExpenseBtn.addEventListener('click', addSharedExpense);
+        // Add Expense button - FIXED: Use direct reference to function
+        if (addExpenseBtn) {
+            addExpenseBtn.addEventListener('click', function(e) {
+                e.preventDefault();
+                addSharedExpense();
+            });
+        }
 
         // Add Debt button
-        addDebtBtn.addEventListener('click', addPersonalDebt);
+        if (addDebtBtn) {
+            addDebtBtn.addEventListener('click', function(e) {
+                e.preventDefault();
+                addPersonalDebt();
+            });
+        }
 
         // Calculate button
-        calculateBtn.addEventListener('click', calculateSettlements);
+        if (calculateBtn) {
+            calculateBtn.addEventListener('click', calculateSettlements);
+        }
 
         // Reset button
-        resetBtn.addEventListener('click', showResetConfirmation);
+        if (resetBtn) {
+            resetBtn.addEventListener('click', showResetConfirmation);
+        }
 
         // Reset confirmation buttons
-        confirmResetBtn.addEventListener('click', resetAllData);
-        cancelResetBtn.addEventListener('click', hideResetConfirmation);
+        if (confirmResetBtn) {
+            confirmResetBtn.addEventListener('click', resetAllData);
+        }
+        if (cancelResetBtn) {
+            cancelResetBtn.addEventListener('click', hideResetConfirmation);
+        }
 
         // Delete confirmation buttons
-        confirmDeleteBtn.addEventListener('click', confirmDelete);
-        cancelDeleteBtn.addEventListener('click', hideDeleteConfirmation);
+        if (confirmDeleteBtn) {
+            confirmDeleteBtn.addEventListener('click', confirmDelete);
+        }
+        if (cancelDeleteBtn) {
+            cancelDeleteBtn.addEventListener('click', hideDeleteConfirmation);
+        }
 
         // Tabs
         tabs.forEach(tab => {
@@ -300,22 +322,34 @@ document.addEventListener('DOMContentLoaded', function() {
         });
 
         // Form submission on Enter key
-        expenseName.addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') addSharedExpense();
-        });
+        if (expenseName) {
+            expenseName.addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    addSharedExpense();
+                }
+            });
+        }
 
-        debtDescription.addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') addPersonalDebt();
-        });
+        if (debtDescription) {
+            debtDescription.addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    addPersonalDebt();
+                }
+            });
+        }
 
         // Auto-select all roommates when focusing on expense form
-        expenseName.addEventListener('focus', () => {
-            if (selectedRoommates.size === 0) {
-                ROOMMATE_IDS.forEach(id => selectedRoommates.add(id));
-                setupRoommateTags();
-                updatePaidByOptions();
-            }
-        });
+        if (expenseName) {
+            expenseName.addEventListener('focus', () => {
+                if (selectedRoommates.size === 0) {
+                    ROOMMATE_IDS.forEach(id => selectedRoommates.add(id));
+                    setupRoommateTags();
+                    updatePaidByOptions();
+                }
+            });
+        }
 
         // Backward compatibility for realtime.js
         setupRealtimeCompatibility();
@@ -338,6 +372,7 @@ document.addEventListener('DOMContentLoaded', function() {
         window.itemToDelete = itemToDelete;
         window.itemTypeToDelete = deleteType;
         window.selectedRoommates = selectedRoommates;
+        window.ROOMMATES = ROOMMATES;
     }
 
     // ============ TAB MANAGEMENT ============
@@ -362,31 +397,37 @@ document.addEventListener('DOMContentLoaded', function() {
     // ============ SHARED EXPENSE MANAGEMENT ============
     function addSharedExpense() {
         // Get form values
-        const type = expenseType.value;
-        const name = expenseName.value.trim();
-        const amount = parseFloat(expenseAmount.value);
-        const date = invoiceDate.value;
-        const paidByValue = paidBy.value;
+        const type = expenseType ? expenseType.value : '';
+        const name = expenseName ? expenseName.value.trim() : '';
+        const amount = expenseAmount ? parseFloat(expenseAmount.value) : 0;
+        const date = invoiceDate ? invoiceDate.value : '';
+        const paidByValue = paidBy ? paidBy.value : '';
 
         // Convert selectedRoommates Set to array
         const selectedRoommatesArray = Array.from(selectedRoommates);
 
-        // Validation
-        if (!name) {
+        // Debug logging
+        console.log('Expense name:', name);
+        console.log('Expense amount:', amount);
+        console.log('Selected roommates:', selectedRoommatesArray);
+        console.log('Paid by:', paidByValue);
+
+        // Validation - FIXED: Check if name has at least 1 character after trim
+        if (!name || name.length === 0) {
             alert('Please enter an expense name');
-            expenseName.focus();
+            if (expenseName) expenseName.focus();
             return;
         }
 
         if (!amount || amount <= 0 || isNaN(amount)) {
             alert('Please enter a valid amount');
-            expenseAmount.focus();
+            if (expenseAmount) expenseAmount.focus();
             return;
         }
 
         if (!date) {
             alert('Please select a date');
-            invoiceDate.focus();
+            if (invoiceDate) invoiceDate.focus();
             return;
         }
 
@@ -395,7 +436,7 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
 
-        if (!selectedRoommatesArray.includes(paidByValue)) {
+        if (!paidByValue || !selectedRoommatesArray.includes(paidByValue)) {
             alert('The person who paid must be included in the expense');
             return;
         }
@@ -425,9 +466,15 @@ document.addEventListener('DOMContentLoaded', function() {
         calculateBalances();
 
         // Reset form
-        expenseName.value = '';
-        expenseAmount.value = '';
-        expenseName.focus();
+        if (expenseName) {
+            expenseName.value = '';
+        }
+        if (expenseAmount) {
+            expenseAmount.value = '';
+        }
+        if (expenseName) {
+            expenseName.focus();
+        }
 
         // Reset roommate selection to all
         selectedRoommates = new Set(ROOMMATE_IDS);
@@ -525,14 +572,14 @@ document.addEventListener('DOMContentLoaded', function() {
     // ============ PERSONAL DEBT MANAGEMENT ============
     function addPersonalDebt() {
         // Get form values
-        const from = debtFrom.value;
-        const to = debtTo.value;
-        const amount = parseFloat(debtAmount.value);
-        const description = debtDescription.value.trim();
-        const date = debtDate.value;
-        const notes = debtNotes.value.trim();
+        const from = debtFrom ? debtFrom.value : '';
+        const to = debtTo ? debtTo.value : '';
+        const amount = debtAmount ? parseFloat(debtAmount.value) : 0;
+        const description = debtDescription ? debtDescription.value.trim() : '';
+        const date = debtDate ? debtDate.value : '';
+        const notes = debtNotes ? debtNotes.value.trim() : '';
 
-        // Validation
+        // Validation - FIXED: Check for minimum length
         if (from === to) {
             alert('The debtor and creditor cannot be the same person');
             return;
@@ -540,19 +587,19 @@ document.addEventListener('DOMContentLoaded', function() {
 
         if (!description || description.length < 2) {
             alert('Please enter a valid description (at least 2 characters)');
-            debtDescription.focus();
+            if (debtDescription) debtDescription.focus();
             return;
         }
 
         if (!amount || amount <= 0 || isNaN(amount)) {
             alert('Please enter a valid amount');
-            debtAmount.focus();
+            if (debtAmount) debtAmount.focus();
             return;
         }
 
         if (!date) {
             alert('Please select a date');
-            debtDate.focus();
+            if (debtDate) debtDate.focus();
             return;
         }
 
@@ -581,10 +628,18 @@ document.addEventListener('DOMContentLoaded', function() {
         renderPersonalDebts();
 
         // Reset form
-        debtDescription.value = '';
-        debtAmount.value = '';
-        debtNotes.value = '';
-        debtDescription.focus();
+        if (debtDescription) {
+            debtDescription.value = '';
+        }
+        if (debtAmount) {
+            debtAmount.value = '';
+        }
+        if (debtNotes) {
+            debtNotes.value = '';
+        }
+        if (debtDescription) {
+            debtDescription.focus();
+        }
 
         // Show success message
         showAutoSaveIndicator('Personal debt added successfully!');
@@ -698,10 +753,7 @@ document.addEventListener('DOMContentLoaded', function() {
             // Calculate share per person for this specific expense
             const sharePerPerson = amount / includedPersons.length;
 
-            // The payer paid the full amount, so they get credited
             balances[paidBy] += amount;
-
-            // Each included person owes their share
             includedPersons.forEach(id => {
                 balances[id] -= sharePerPerson;
             });
@@ -747,9 +799,15 @@ document.addEventListener('DOMContentLoaded', function() {
         const sharePerPerson = sharedExpenses.length > 0 ? totalShareAmount : 0;
 
         // Update UI
-        totalExpensesEl.textContent = `$${totalExpenses.toFixed(2)}`;
-        totalPersonalDebtsEl.textContent = `$${totalPersonalDebts.toFixed(2)}`;
-        sharePerPersonEl.textContent = `$${sharePerPerson.toFixed(2)}`;
+        if (totalExpensesEl) {
+            totalExpensesEl.textContent = `$${totalExpenses.toFixed(2)}`;
+        }
+        if (totalPersonalDebtsEl) {
+            totalPersonalDebtsEl.textContent = `$${totalPersonalDebts.toFixed(2)}`;
+        }
+        if (sharePerPersonEl) {
+            sharePerPersonEl.textContent = `$${sharePerPerson.toFixed(2)}`;
+        }
     }
 
     // ============ SETTLEMENT CALCULATION ============
@@ -1001,16 +1059,26 @@ document.addEventListener('DOMContentLoaded', function() {
             itemName = debt ? debt.description : 'this debt';
         }
 
-        document.getElementById('delete-message').textContent =
-            `Are you sure you want to delete "${itemName}"? This action cannot be undone.`;
+        if (document.getElementById('delete-message')) {
+            document.getElementById('delete-message').textContent =
+                `Are you sure you want to delete "${itemName}"? This action cannot be undone.`;
+        }
 
-        deleteConfirmation.classList.add('active');
-        deleteOverlay.classList.add('active');
+        if (deleteConfirmation) {
+            deleteConfirmation.classList.add('active');
+        }
+        if (deleteOverlay) {
+            deleteOverlay.classList.add('active');
+        }
     }
 
     function hideDeleteConfirmation() {
-        deleteConfirmation.classList.remove('active');
-        deleteOverlay.classList.remove('active');
+        if (deleteConfirmation) {
+            deleteConfirmation.classList.remove('active');
+        }
+        if (deleteOverlay) {
+            deleteOverlay.classList.remove('active');
+        }
         itemToDelete = null;
         deleteType = null;
     }
@@ -1051,11 +1119,15 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // ============ RESET FUNCTIONALITY ============
     function showResetConfirmation() {
-        resetConfirmation.classList.add('active');
+        if (resetConfirmation) {
+            resetConfirmation.classList.add('active');
+        }
     }
 
     function hideResetConfirmation() {
-        resetConfirmation.classList.remove('active');
+        if (resetConfirmation) {
+            resetConfirmation.classList.remove('active');
+        }
     }
 
     function resetAllData() {
