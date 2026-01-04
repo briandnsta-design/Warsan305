@@ -1,4 +1,4 @@
-// realtime.js - Simplified and fixed version
+// realtime.js - Fixed version for proper desktop-mobile sync
 class RealTimeCollaboration {
     constructor() {
         this.socket = null;
@@ -6,6 +6,8 @@ class RealTimeCollaboration {
         this.roomId = 'warsan305';
         this.isConnected = false;
         this.typingTimeout = null;
+        this.reconnectAttempts = 0;
+        this.maxReconnectAttempts = 5;
 
         this.init();
     }
@@ -19,9 +21,6 @@ class RealTimeCollaboration {
         } else {
             this.connectToServer();
         }
-
-        // Setup event listeners after app is initialized
-        setTimeout(() => this.setupEventListeners(), 100);
     }
 
     promptForUsername() {
@@ -31,164 +30,221 @@ class RealTimeCollaboration {
             localStorage.setItem('warsan305_user', this.currentUser);
             this.connectToServer();
         } else {
-            setTimeout(() => this.promptForUsername(), 100);
+            // Use a default name if user cancels
+            this.currentUser = 'User' + Math.floor(Math.random() * 1000);
+            localStorage.setItem('warsan305_user', this.currentUser);
+            this.connectToServer();
         }
     }
 
     connectToServer() {
-        this.socket = io();
+        try {
+            this.socket = io();
 
-        // Connection events
-        this.socket.on('connect', () => {
-            console.log('Connected to server');
-            this.isConnected = true;
-            this.updateConnectionStatus('connected');
+            // Connection events
+            this.socket.on('connect', () => {
+                console.log('✅ Connected to server');
+                this.isConnected = true;
+                this.reconnectAttempts = 0;
+                this.updateConnectionStatus('connected');
 
-            // Join the room
-            this.socket.emit('join-room', {
-                roomId: this.roomId,
-                userName: this.currentUser
+                // Join the room
+                this.socket.emit('join-room', {
+                    roomId: this.roomId,
+                    userName: this.currentUser
+                });
+
+                // Show connected notification
+                this.showNotification('Connected to real-time collaboration');
             });
-        });
 
-        this.socket.on('disconnect', () => {
-            console.log('Disconnected from server');
-            this.isConnected = false;
-            this.updateConnectionStatus('disconnected');
-        });
+            this.socket.on('disconnect', () => {
+                console.log('❌ Disconnected from server');
+                this.isConnected = false;
+                this.updateConnectionStatus('disconnected');
+                
+                // Attempt reconnection
+                if (this.reconnectAttempts < this.maxReconnectAttempts) {
+                    this.reconnectAttempts++;
+                    setTimeout(() => {
+                        console.log(`Attempting to reconnect (${this.reconnectAttempts}/${this.maxReconnectAttempts})...`);
+                        this.connectToServer();
+                    }, 2000 * this.reconnectAttempts);
+                }
+            });
 
-        this.socket.on('connect_error', () => {
-            this.updateConnectionStatus('disconnected');
-        });
+            this.socket.on('connect_error', (error) => {
+                console.log('Connection error:', error);
+                this.updateConnectionStatus('disconnected');
+                this.showNotification('Connection error - working in offline mode');
+            });
 
-        // Room data received
-        this.socket.on('room-data', (data) => {
-            console.log('Room data received:', data);
-
-            // Update local data
-            if (data.expenses) {
-                window.appInstance.sharedExpenses = data.expenses;
-                window.appInstance.renderExpenses();
-                window.appInstance.calculateBalances();
-            }
-
-            if (data.personalDebts) {
-                window.appInstance.personalDebts = data.personalDebts;
-                window.appInstance.renderPersonalDebts();
-                window.appInstance.calculateBalances();
-            }
-
-            // Update user list
-            this.updateUserList(data.users);
-
-            // Update activity feed
-            if (data.activityLog) {
-                this.updateActivityFeed(data.activityLog);
-            }
-        });
-
-        // User events
-        this.socket.on('user-joined', (user) => {
-            this.showNotification(`${user.name} joined the room`);
-            this.addUserToList(user);
-        });
-
-        this.socket.on('user-left', (data) => {
-            this.showNotification(`${data.userName} left the room`);
-            this.removeUserFromList(data.userId);
-        });
-
-        this.socket.on('update-users', (users) => {
-            this.updateUserList(users);
-        });
-
-        // Data events
-        this.socket.on('expense-added', (data) => {
-            const expense = data.expense;
-
-            // Add to local expenses if not already present
-            if (!window.appInstance.sharedExpenses.some(e => e.id === expense.id)) {
-                window.appInstance.sharedExpenses.unshift(expense);
-                window.appInstance.renderExpenses();
-                window.appInstance.calculateBalances();
-                window.appInstance.showAutoSaveIndicator('New expense added');
-
-                this.showNotification(`${data.addedBy} added expense: ${expense.name}`);
-            }
-        });
-
-        this.socket.on('debt-added', (data) => {
-            const debt = data.debt;
-
-            if (!window.appInstance.personalDebts.some(d => d.id === debt.id)) {
-                window.appInstance.personalDebts.unshift(debt);
-                window.appInstance.renderPersonalDebts();
-                window.appInstance.calculateBalances();
-                window.appInstance.showAutoSaveIndicator('New debt added');
-
-                this.showNotification(`${data.addedBy} added personal debt: ${debt.description}`);
-            }
-        });
-
-        this.socket.on('item-deleted', (data) => {
-            if (data.itemType === 'expense') {
-                const index = window.appInstance.sharedExpenses.findIndex(e => e.id === data.itemId);
-                if (index !== -1) {
-                    window.appInstance.sharedExpenses.splice(index, 1);
+            // Room data received - SYNC ALL DATA FROM SERVER
+            this.socket.on('room-data', (data) => {
+                console.log('📥 Room data received from server');
+                
+                // IMPORTANT: Replace ALL local data with server data
+                if (window.appInstance) {
+                    window.appInstance.sharedExpenses = data.expenses || [];
+                    window.appInstance.personalDebts = data.personalDebts || [];
+                    
+                    // Save to localStorage to ensure consistency
+                    window.appInstance.saveData();
+                    
+                    // Update UI
                     window.appInstance.renderExpenses();
-                    window.appInstance.calculateBalances();
-                    window.appInstance.showAutoSaveIndicator('Expense deleted');
-                }
-            } else if (data.itemType === 'debt') {
-                const index = window.appInstance.personalDebts.findIndex(d => d.id === data.itemId);
-                if (index !== -1) {
-                    window.appInstance.personalDebts.splice(index, 1);
                     window.appInstance.renderPersonalDebts();
-                    window.appInstance.showAutoSaveIndicator('Debt deleted');
+                    window.appInstance.calculateBalances();
+                    
+                    this.showNotification('Synced with server data');
                 }
-            }
-        });
+                
+                // Update user list
+                this.updateUserList(data.users);
+                
+                // Update activity feed
+                if (data.activityLog) {
+                    this.updateActivityFeed(data.activityLog);
+                }
+            });
 
-        this.socket.on('debt-settled', (data) => {
-            const debt = window.appInstance.personalDebts.find(d => d.id === data.debtId);
-            if (debt) {
-                debt.status = 'settled';
-                debt.settledAt = new Date().toISOString();
-                window.appInstance.renderPersonalDebts();
-                window.appInstance.calculateBalances();
-                window.appInstance.showAutoSaveIndicator('Debt settled');
-            }
-        });
+            // User events
+            this.socket.on('user-joined', (user) => {
+                this.showNotification(`${user.name} joined`);
+                this.addUserToList(user);
+            });
 
-        this.socket.on('data-reset', () => {
-            window.appInstance.sharedExpenses = [];
-            window.appInstance.personalDebts = [];
-            window.appInstance.settlements = [];
+            this.socket.on('user-left', (data) => {
+                this.showNotification(`${data.userName} left`);
+                this.removeUserFromList(data.userId);
+            });
 
-            window.appInstance.renderExpenses();
-            window.appInstance.renderPersonalDebts();
-            window.appInstance.calculateBalances();
-            window.appInstance.showAutoSaveIndicator('Data reset');
+            this.socket.on('update-users', (users) => {
+                this.updateUserList(users);
+            });
 
-            // Clear settlement display
-            const settlementContainer = document.getElementById('settlement-container');
-            if (settlementContainer) {
-                settlementContainer.innerHTML = '<p class="no-expenses">Click "Calculate" to see who owes whom (including personal debts)</p>';
-            }
+            // Data sync events
+            this.socket.on('expense-added', (data) => {
+                console.log('📥 Expense added by:', data.addedBy);
+                
+                if (window.appInstance) {
+                    const expense = data.expense;
+                    const exists = window.appInstance.sharedExpenses.some(e => e.id === expense.id);
+                    
+                    if (!exists) {
+                        window.appInstance.sharedExpenses.unshift(expense);
+                        window.appInstance.saveData();
+                        window.appInstance.renderExpenses();
+                        window.appInstance.calculateBalances();
+                        window.appInstance.showAutoSaveIndicator(`New expense from ${data.addedBy}`);
+                    }
+                }
+                
+                this.showNotification(`${data.addedBy} added expense: ${data.expense.name}`);
+            });
 
-            // Hide circular debt section
-            const circularDebtSection = document.getElementById('circular-debt-section');
-            if (circularDebtSection) {
-                circularDebtSection.style.display = 'none';
-            }
-        });
+            this.socket.on('debt-added', (data) => {
+                console.log('📥 Debt added by:', data.addedBy);
+                
+                if (window.appInstance) {
+                    const debt = data.debt;
+                    const exists = window.appInstance.personalDebts.some(d => d.id === debt.id);
+                    
+                    if (!exists) {
+                        window.appInstance.personalDebts.unshift(debt);
+                        window.appInstance.saveData();
+                        window.appInstance.renderPersonalDebts();
+                        window.appInstance.calculateBalances();
+                        window.appInstance.showAutoSaveIndicator(`New debt from ${data.addedBy}`);
+                    }
+                }
+                
+                this.showNotification(`${data.addedBy} added debt: ${data.debt.description}`);
+            });
+
+            this.socket.on('item-deleted', (data) => {
+                console.log('🗑️ Item deleted by:', data.deletedBy);
+                
+                if (window.appInstance) {
+                    if (data.itemType === 'expense') {
+                        window.appInstance.sharedExpenses = window.appInstance.sharedExpenses.filter(e => e.id !== data.itemId);
+                        window.appInstance.saveData();
+                        window.appInstance.renderExpenses();
+                        window.appInstance.calculateBalances();
+                    } else if (data.itemType === 'debt') {
+                        window.appInstance.personalDebts = window.appInstance.personalDebts.filter(d => d.id !== data.itemId);
+                        window.appInstance.saveData();
+                        window.appInstance.renderPersonalDebts();
+                    }
+                    
+                    window.appInstance.showAutoSaveIndicator(`${data.itemType} deleted by ${data.deletedBy}`);
+                }
+                
+                this.showNotification(`${data.deletedBy} deleted a ${data.itemType}`);
+            });
+
+            this.socket.on('debt-settled', (data) => {
+                console.log('✅ Debt settled by:', data.settledBy);
+                
+                if (window.appInstance) {
+                    const debt = window.appInstance.personalDebts.find(d => d.id === data.debtId);
+                    if (debt) {
+                        debt.status = 'settled';
+                        debt.settledAt = new Date().toISOString();
+                        window.appInstance.saveData();
+                        window.appInstance.renderPersonalDebts();
+                        window.appInstance.calculateBalances();
+                        window.appInstance.showAutoSaveIndicator(`Debt settled by ${data.settledBy}`);
+                    }
+                }
+                
+                this.showNotification(`${data.settledBy} settled a debt`);
+            });
+
+            this.socket.on('data-reset', (data) => {
+                console.log('🔄 Data reset by:', data.resetBy);
+                
+                if (window.appInstance) {
+                    window.appInstance.sharedExpenses = [];
+                    window.appInstance.personalDebts = [];
+                    window.appInstance.saveData();
+                    window.appInstance.renderExpenses();
+                    window.appInstance.renderPersonalDebts();
+                    window.appInstance.calculateBalances();
+                    window.appInstance.showAutoSaveIndicator(`Data reset by ${data.resetBy}`);
+                    
+                    // Clear settlement display
+                    const settlementContainer = document.getElementById('settlement-container');
+                    if (settlementContainer) {
+                        settlementContainer.innerHTML = '<p class="no-expenses">Click "Calculate" to see who owes whom</p>';
+                    }
+                    
+                    // Hide circular debt section
+                    const circularDebtSection = document.getElementById('circular-debt-section');
+                    if (circularDebtSection) {
+                        circularDebtSection.style.display = 'none';
+                    }
+                }
+                
+                this.showNotification(`${data.resetBy} reset all data`);
+            });
+
+            // New activity
+            this.socket.on('new-activity', (activity) => {
+                this.addActivityToFeed(activity);
+            });
+
+        } catch (error) {
+            console.error('Error connecting to server:', error);
+            this.showNotification('Cannot connect to server - offline mode');
+        }
     }
 
     updateConnectionStatus(status) {
         const statusElement = document.getElementById('connection-status');
         if (statusElement) {
             statusElement.className = `connection-status status-${status}`;
-
+            
             switch(status) {
                 case 'connected':
                     statusElement.innerHTML = '<i class="fas fa-circle"></i><span>Connected</span>';
@@ -207,7 +263,7 @@ class RealTimeCollaboration {
         const userListElement = document.getElementById('user-list');
         if (userListElement) {
             userListElement.innerHTML = '';
-
+            
             // Add current user first
             userListElement.innerHTML += `
                 <li>
@@ -219,11 +275,11 @@ class RealTimeCollaboration {
                     </div>
                 </li>
             `;
-
+            
             // Add other users
             if (users && Array.isArray(users)) {
                 users.forEach(user => {
-                    if (user.id !== this.socket.id) {
+                    if (user.id !== this.socket?.id) {
                         userListElement.innerHTML += `
                             <li id="user-${user.id}">
                                 <div class="user-avatar" style="background-color: ${user.color}">
@@ -237,22 +293,18 @@ class RealTimeCollaboration {
                     }
                 });
             }
-
+            
             // Show/hide active users panel
             const activeUsersPanel = document.getElementById('active-users');
             if (activeUsersPanel) {
-                if (users && users.length > 0) {
-                    activeUsersPanel.style.display = 'block';
-                } else {
-                    activeUsersPanel.style.display = 'none';
-                }
+                activeUsersPanel.style.display = 'block';
             }
         }
     }
 
     addUserToList(user) {
         const userListElement = document.getElementById('user-list');
-        if (userListElement && user.id !== this.socket.id) {
+        if (userListElement && user.id !== this.socket?.id) {
             const existingUser = document.getElementById(`user-${user.id}`);
             if (!existingUser) {
                 userListElement.innerHTML += `
@@ -279,11 +331,14 @@ class RealTimeCollaboration {
     updateActivityFeed(activities) {
         const activityList = document.getElementById('activity-list');
         if (activityList) {
+            activityList.innerHTML = '';
+            
             if (!Array.isArray(activities)) {
                 activities = [activities];
             }
-
-            activities.forEach(activity => {
+            
+            // Show newest first
+            activities.reverse().forEach(activity => {
                 const icon = this.getActivityIcon(activity.type);
                 activityList.innerHTML += `
                     <div class="activity-item">
@@ -292,29 +347,43 @@ class RealTimeCollaboration {
                     </div>
                 `;
             });
+        }
+    }
 
+    addActivityToFeed(activity) {
+        const activityList = document.getElementById('activity-list');
+        if (activityList) {
+            const icon = this.getActivityIcon(activity.type);
+            const activityItem = document.createElement('div');
+            activityItem.className = 'activity-item';
+            activityItem.innerHTML = `
+                <i class="fas ${icon}"></i> ${activity.message}
+                <div class="activity-time">${activity.time}</div>
+            `;
+            
+            // Add to top
+            activityList.insertBefore(activityItem, activityList.firstChild);
+            
             // Keep only last 10 activities
             const allActivities = activityList.querySelectorAll('.activity-item');
             if (allActivities.length > 10) {
-                for (let i = 0; i < allActivities.length - 10; i++) {
-                    allActivities[i].remove();
-                }
+                activityList.removeChild(allActivities[allActivities.length - 1]);
             }
         }
     }
 
     getActivityIcon(type) {
-        switch(type) {
-            case 'join': return 'fa-user-plus';
-            case 'leave': return 'fa-user-minus';
-            case 'expense': return 'fa-receipt';
-            case 'debt': return 'fa-hand-holding-usd';
-            case 'delete': return 'fa-trash';
-            case 'settle': return 'fa-check-circle';
-            case 'reset': return 'fa-redo';
-            case 'calculate': return 'fa-calculator';
-            default: return 'fa-info-circle';
-        }
+        const icons = {
+            'join': 'fa-user-plus',
+            'leave': 'fa-user-minus',
+            'expense': 'fa-receipt',
+            'debt': 'fa-hand-holding-usd',
+            'delete': 'fa-trash',
+            'settle': 'fa-check-circle',
+            'reset': 'fa-redo',
+            'calculate': 'fa-calculator'
+        };
+        return icons[type] || 'fa-info-circle';
     }
 
     getUserColor(userName) {
@@ -322,12 +391,12 @@ class RealTimeCollaboration {
             '#3498db', '#e74c3c', '#2ecc71', '#f39c12',
             '#9b59b6', '#1abc9c', '#e67e22'
         ];
-
+        
         let hash = 0;
         for (let i = 0; i < userName.length; i++) {
             hash = userName.charCodeAt(i) + ((hash << 5) - hash);
         }
-
+        
         return colors[Math.abs(hash) % colors.length];
     }
 
@@ -349,9 +418,9 @@ class RealTimeCollaboration {
             max-width: 300px;
             font-size: 0.9rem;
         `;
-
+        
         document.body.appendChild(notification);
-
+        
         setTimeout(() => {
             notification.style.animation = 'slideOut 0.3s ease forwards';
             setTimeout(() => {
@@ -360,7 +429,7 @@ class RealTimeCollaboration {
                 }
             }, 300);
         }, 3000);
-
+        
         if (!document.querySelector('#notification-styles')) {
             const style = document.createElement('style');
             style.id = 'notification-styles';
@@ -378,360 +447,88 @@ class RealTimeCollaboration {
         }
     }
 
-    setupEventListeners() {
-        // Override the original button click handlers
-        const addExpenseBtn = document.getElementById('add-expense-btn');
-        const addDebtBtn = document.getElementById('add-debt-btn');
-        const calculateBtn = document.getElementById('calculate-btn');
-        const resetBtn = document.getElementById('reset-btn');
-
-        if (addExpenseBtn) {
-            addExpenseBtn.onclick = (e) => {
-                e.preventDefault();
-                this.handleAddExpense();
-            };
-        }
-
-        if (addDebtBtn) {
-            addDebtBtn.onclick = (e) => {
-                e.preventDefault();
-                this.handleAddDebt();
-            };
-        }
-
-        if (calculateBtn) {
-            calculateBtn.onclick = (e) => {
-                e.preventDefault();
-                this.handleCalculate();
-            };
-        }
-
-        if (resetBtn) {
-            resetBtn.onclick = (e) => {
-                e.preventDefault();
-                this.handleReset();
-            };
-        }
-
-        // Setup roommate tag selection
-        this.setupRoommateTags();
-
-        // Setup select all/clear all buttons
-        this.setupSelectionButtons();
-
-        // Also override form submissions
-        const expenseForm = document.querySelector('#shared-expense-tab');
-        const debtForm = document.querySelector('#personal-debt-tab');
-
-        if (expenseForm) {
-            expenseForm.addEventListener('submit', (e) => {
-                e.preventDefault();
-                this.handleAddExpense();
-            });
-        }
-
-        if (debtForm) {
-            debtForm.addEventListener('submit', (e) => {
-                e.preventDefault();
-                this.handleAddDebt();
-            });
-        }
-
-        // Auto-select all roommates when focusing on expense name
-        const expenseName = document.getElementById('expense-name');
-        if (expenseName) {
-            expenseName.addEventListener('focus', () => {
-                if (window.appInstance && window.appInstance.selectedRoommates.size === 0) {
-                    const ROOMMATE_IDS = Object.keys(window.appInstance.ROOMMATES || {});
-                    ROOMMATE_IDS.forEach(id => window.appInstance.selectedRoommates.add(id));
-                    if (window.appInstance.setupRoommateTags) {
-                        window.appInstance.setupRoommateTags();
-                        window.appInstance.updatePaidByOptions();
-                    }
-                }
-            });
-        }
-    }
-
-    setupRoommateTags() {
-        const roommateTagsContainer = document.getElementById('roommate-tags-container');
-        if (roommateTagsContainer) {
-            roommateTagsContainer.addEventListener('click', (e) => {
-                const tag = e.target.closest('.roommate-tag');
-                if (tag && window.appInstance) {
-                    const id = tag.dataset.id;
-                    this.toggleRoommateSelection(id);
-                }
-            });
-        }
-    }
-
-    setupSelectionButtons() {
-        const selectAllBtn = document.getElementById('select-all-btn');
-        const clearAllBtn = document.getElementById('clear-all-btn');
-
-        if (selectAllBtn && window.appInstance) {
-            selectAllBtn.addEventListener('click', () => {
-                const ROOMMATE_IDS = Object.keys(window.appInstance.ROOMMATES || {});
-                ROOMMATE_IDS.forEach(id => window.appInstance.selectedRoommates.add(id));
-                if (window.appInstance.setupRoommateTags) {
-                    window.appInstance.setupRoommateTags();
-                    window.appInstance.updatePaidByOptions();
-                }
-            });
-        }
-
-        if (clearAllBtn && window.appInstance) {
-            clearAllBtn.addEventListener('click', () => {
-                window.appInstance.selectedRoommates.clear();
-                if (window.appInstance.setupRoommateTags) {
-                    window.appInstance.setupRoommateTags();
-                    window.appInstance.updatePaidByOptions();
-                }
-            });
-        }
-    }
-
-    toggleRoommateSelection(id) {
-        if (!window.appInstance) return;
-
-        if (window.appInstance.selectedRoommates.has(id)) {
-            window.appInstance.selectedRoommates.delete(id);
-        } else {
-            window.appInstance.selectedRoommates.add(id);
-        }
-
-        const tag = document.querySelector(`.roommate-tag[data-id="${id}"]`);
-        if (tag) {
-            tag.classList.toggle('selected', window.appInstance.selectedRoommates.has(id));
-            const checkmark = tag.querySelector('.tag-checkmark');
-            if (checkmark) {
-                checkmark.textContent = window.appInstance.selectedRoommates.has(id) ? '✓' : '✗';
-            }
-        }
-
-        this.updateSelectedCount();
-        if (window.appInstance.updatePaidByOptions) {
-            window.appInstance.updatePaidByOptions();
-        }
-    }
-
-    updateSelectedCount() {
-        const selectedCountEl = document.getElementById('selected-count');
-        if (selectedCountEl && window.appInstance) {
-            selectedCountEl.textContent = `${window.appInstance.selectedRoommates.size}/${Object.keys(window.appInstance.ROOMMATES || {}).length} selected`;
-            
-            // Update color based on selection status
-            const totalCount = Object.keys(window.appInstance.ROOMMATES || {}).length;
-            if (window.appInstance.selectedRoommates.size === totalCount) {
-                selectedCountEl.style.color = '#2ecc71';
-            } else if (window.appInstance.selectedRoommates.size === 0) {
-                selectedCountEl.style.color = '#e74c3c';
-            } else {
-                selectedCountEl.style.color = '#f39c12';
-            }
-        }
-    }
-
-    handleAddExpense() {
-        const type = document.getElementById('expense-type').value;
-        const name = document.getElementById('expense-name').value.trim();
-        const amount = parseFloat(document.getElementById('expense-amount').value);
-        const date = document.getElementById('invoice-date').value;
-        const paidBy = document.getElementById('paid-by').value;
-
-        // Get selected roommates
-        const selectedRoommatesArray = window.appInstance ?
-            Array.from(window.appInstance.selectedRoommates) :
-            Object.keys(window.appInstance?.ROOMMATES || {});
-
-        // Validation
-        if (!name) {
-            alert('Please enter an expense name');
-            document.getElementById('expense-name').focus();
-            return;
-        }
-
-        if (!amount || amount <= 0 || isNaN(amount)) {
-            alert('Please enter a valid amount');
-            document.getElementById('expense-amount').focus();
-            return;
-        }
-
-        if (!date) {
-            alert('Please select a date');
-            document.getElementById('invoice-date').focus();
-            return;
-        }
-
-        if (selectedRoommatesArray.length === 0) {
-            alert('Please select at least one roommate to include in this expense');
-            return;
-        }
-
-        if (!selectedRoommatesArray.includes(paidBy)) {
-            alert('The person who paid must be included in the expense');
-            return;
-        }
-
-        // Create expense object
-        const expense = {
-            id: Date.now(),
-            type: type,
-            name: name,
-            amount: amount,
-            date: date,
-            paidBy: paidBy,
-            paidByName: window.appInstance.ROOMMATES[paidBy],
-            includedPersons: selectedRoommatesArray,
-            sharePerPerson: amount / selectedRoommatesArray.length,
-            createdAt: new Date().toISOString()
-        };
-
-        // Emit to server
+    // Public method to emit events from app.js
+    emitEvent(event, data) {
         if (this.socket && this.isConnected) {
-            this.socket.emit('add-expense', {
+            this.socket.emit(event, {
                 roomId: this.roomId,
-                expense: expense,
+                ...data,
                 userName: this.currentUser
             });
-        } else {
-            // Local fallback
-            if (window.appInstance && window.appInstance.addSharedExpense) {
-                window.appInstance.sharedExpenses.push(expense);
-                window.appInstance.saveData();
-                window.appInstance.renderExpenses();
-                window.appInstance.calculateBalances();
-                window.appInstance.showAutoSaveIndicator('Expense added successfully!');
-            }
-        }
-
-        // Reset form
-        document.getElementById('expense-name').value = '';
-        document.getElementById('expense-amount').value = '';
-        document.getElementById('expense-name').focus();
-
-        // Reset roommate selection to all
-        if (window.appInstance) {
-            const ROOMMATE_IDS = Object.keys(window.appInstance.ROOMMATES || {});
-            window.appInstance.selectedRoommates = new Set(ROOMMATE_IDS);
-            if (window.appInstance.setupRoommateTags) {
-                window.appInstance.setupRoommateTags();
-                window.appInstance.updatePaidByOptions();
-            }
-        }
-    }
-
-    handleAddDebt() {
-        const from = document.getElementById('debt-from').value;
-        const to = document.getElementById('debt-to').value;
-        const amount = parseFloat(document.getElementById('debt-amount').value);
-        const description = document.getElementById('debt-description').value.trim();
-        const date = document.getElementById('debt-date').value;
-        const notes = document.getElementById('debt-notes').value.trim();
-
-        // Validation - Fixed: Check for minimum length instead of just existence
-        if (from === to) {
-            alert('The debtor and creditor cannot be the same person');
-            return;
-        }
-
-        if (!description || description.length < 2) {
-            alert('Please enter a valid description (at least 2 characters)');
-            document.getElementById('debt-description').focus();
-            return;
-        }
-
-        if (!amount || amount <= 0 || isNaN(amount)) {
-            alert('Please enter a valid amount');
-            document.getElementById('debt-amount').focus();
-            return;
-        }
-
-        if (!date) {
-            alert('Please select a date');
-            document.getElementById('debt-date').focus();
-            return;
-        }
-
-        // Create debt object
-        const debt = {
-            id: Date.now(),
-            from: from,
-            fromName: window.appInstance.ROOMMATES[from],
-            to: to,
-            toName: window.appInstance.ROOMMATES[to],
-            amount: amount,
-            description: description,
-            date: date,
-            notes: notes,
-            status: 'pending',
-            createdAt: new Date().toISOString()
-        };
-
-        // Emit to server
-        if (this.socket && this.isConnected) {
-            this.socket.emit('add-personal-debt', {
-                roomId: this.roomId,
-                debt: debt,
-                userName: this.currentUser
-            });
-        } else {
-            // Local fallback
-            if (window.appInstance && window.appInstance.addPersonalDebt) {
-                window.appInstance.personalDebts.push(debt);
-                window.appInstance.saveData();
-                window.appInstance.renderPersonalDebts();
-                window.appInstance.showAutoSaveIndicator('Personal debt added successfully!');
-            }
-        }
-
-        // Reset form
-        document.getElementById('debt-description').value = '';
-        document.getElementById('debt-amount').value = '';
-        document.getElementById('debt-notes').value = '';
-        document.getElementById('debt-description').focus();
-    }
-
-    handleCalculate() {
-        // Just trigger the original calculation
-        if (window.appInstance && window.appInstance.calculateSettlements) {
-            window.appInstance.calculateSettlements();
-
-            // Emit to server
-            if (this.socket && this.isConnected) {
-                this.socket.emit('calculate-settlements', {
-                    roomId: this.roomId,
-                    userName: this.currentUser
-                });
-            }
-        }
-    }
-
-    handleReset() {
-        if (confirm('Are you sure you want to reset all data? This cannot be undone.')) {
-            // Emit to server
-            if (this.socket && this.isConnected) {
-                this.socket.emit('reset-data', {
-                    roomId: this.roomId,
-                    userName: this.currentUser
-                });
-            } else {
-                // Local fallback
-                if (window.appInstance && window.appInstance.resetAllData) {
-                    window.appInstance.resetAllData();
-                }
-            }
         }
     }
 }
 
 // Initialize when DOM is loaded
 document.addEventListener('DOMContentLoaded', function() {
-    // Wait a bit for app.js to initialize
-    setTimeout(() => {
-        if (!window.realTime) {
-            window.realTime = new RealTimeCollaboration();
-        }
-    }, 500);
+    // Create global instance
+    window.realTime = new RealTimeCollaboration();
+    
+    // Override app.js functions to emit events
+    if (window.appInstance) {
+        const originalAddExpense = window.appInstance.addSharedExpense;
+        window.appInstance.addSharedExpense = function() {
+            // Call original function
+            const result = originalAddExpense.apply(this, arguments);
+            
+            // Emit to server if connected
+            if (window.realTime && window.realTime.isConnected && this.sharedExpenses.length > 0) {
+                const expense = this.sharedExpenses[this.sharedExpenses.length - 1];
+                window.realTime.emitEvent('add-expense', { expense: expense });
+            }
+            
+            return result;
+        };
+
+        const originalAddDebt = window.appInstance.addPersonalDebt;
+        window.appInstance.addPersonalDebt = function() {
+            const result = originalAddDebt.apply(this, arguments);
+            
+            if (window.realTime && window.realTime.isConnected && this.personalDebts.length > 0) {
+                const debt = this.personalDebts[this.personalDebts.length - 1];
+                window.realTime.emitEvent('add-personal-debt', { debt: debt });
+            }
+            
+            return result;
+        };
+
+        const originalDelete = window.appInstance.confirmDelete;
+        window.appInstance.confirmDelete = function() {
+            const itemToDelete = this.itemToDelete;
+            const deleteType = this.deleteType;
+            
+            const result = originalDelete.apply(this, arguments);
+            
+            if (window.realTime && window.realTime.isConnected && itemToDelete && deleteType) {
+                window.realTime.emitEvent('delete-item', { 
+                    itemId: itemToDelete, 
+                    itemType: deleteType 
+                });
+            }
+            
+            return result;
+        };
+
+        const originalSettleDebt = window.appInstance.settlePersonalDebt;
+        window.appInstance.settlePersonalDebt = function(debtId) {
+            const result = originalSettleDebt.apply(this, arguments);
+            
+            if (window.realTime && window.realTime.isConnected) {
+                window.realTime.emitEvent('settle-debt', { debtId: debtId });
+            }
+            
+            return result;
+        };
+
+        const originalReset = window.appInstance.resetAllData;
+        window.appInstance.resetAllData = function() {
+            const result = originalReset.apply(this, arguments);
+            
+            if (window.realTime && window.realTime.isConnected) {
+                window.realTime.emitEvent('reset-data', {});
+            }
+            
+            return result;
+        };
+    }
 });
