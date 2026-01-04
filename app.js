@@ -30,7 +30,7 @@ document.addEventListener('DOMContentLoaded', function() {
     const todayBtn = document.getElementById('today-btn');
     const paidBy = document.getElementById('paid-by');
     const addExpenseBtn = document.getElementById('add-expense-btn');
-    
+
     // Roommate Quick Selection Elements
     const roommateTagsContainer = document.getElementById('roommate-tags-container');
     const selectAllBtn = document.getElementById('select-all-btn');
@@ -133,9 +133,9 @@ document.addEventListener('DOMContentLoaded', function() {
             tag.className = `roommate-tag ${selectedRoommates.has(id) ? 'selected' : ''}`;
             tag.dataset.id = id;
             tag.innerHTML = `
-                <span class="tag-avatar">${ROOMMATES[id].charAt(0)}</span>
+                <span class="tag-avatar" style="background-color: ${getPersonColor(id)}">${ROOMMATES[id].charAt(0)}</span>
                 <span class="tag-name">${ROOMMATES[id]}</span>
-                <span class="tag-checkmark">✓</span>
+                <span class="tag-checkmark">${selectedRoommates.has(id) ? '✓' : '✗'}</span>
             `;
             roommateTagsContainer.appendChild(tag);
         });
@@ -143,9 +143,30 @@ document.addEventListener('DOMContentLoaded', function() {
         updateSelectedCount();
     }
 
+    function getPersonColor(personId) {
+        const colors = {
+            person1: '#3498db',
+            person2: '#e74c3c',
+            person3: '#2ecc71',
+            person4: '#f39c12',
+            person5: '#9b59b6',
+            person6: '#1abc9c',
+            person7: '#e67e22'
+        };
+        return colors[personId] || '#95a5a6';
+    }
+
     function updateSelectedCount() {
         if (selectedCountEl) {
-            selectedCountEl.textContent = `${selectedRoommates.size}/${ROOMMATE_IDS.length}`;
+            selectedCountEl.textContent = `${selectedRoommates.size}/${ROOMMATE_IDS.length} selected`;
+            // Update color based on selection status
+            if (selectedRoommates.size === ROOMMATE_IDS.length) {
+                selectedCountEl.style.color = '#2ecc71';
+            } else if (selectedRoommates.size === 0) {
+                selectedCountEl.style.color = '#e74c3c';
+            } else {
+                selectedCountEl.style.color = '#f39c12';
+            }
         }
     }
 
@@ -155,12 +176,16 @@ document.addEventListener('DOMContentLoaded', function() {
         } else {
             selectedRoommates.add(id);
         }
-        
+
         const tag = document.querySelector(`.roommate-tag[data-id="${id}"]`);
         if (tag) {
             tag.classList.toggle('selected', selectedRoommates.has(id));
+            const checkmark = tag.querySelector('.tag-checkmark');
+            if (checkmark) {
+                checkmark.textContent = selectedRoommates.has(id) ? '✓' : '✗';
+            }
         }
-        
+
         updateSelectedCount();
         updatePaidByOptions();
     }
@@ -169,21 +194,22 @@ document.addEventListener('DOMContentLoaded', function() {
         // Filter paid by dropdown to only include selected roommates
         if (paidBy) {
             const currentValue = paidBy.value;
-            paidBy.innerHTML = '';
-            
+            paidBy.innerHTML = '<option value="" disabled>Select payer</option>';
+
             ROOMMATE_IDS.forEach(id => {
                 if (selectedRoommates.has(id)) {
                     const option = document.createElement('option');
                     option.value = id;
                     option.textContent = ROOMMATES[id];
+                    if (currentValue === id) {
+                        option.selected = true;
+                    }
                     paidBy.appendChild(option);
                 }
             });
-            
-            // Try to maintain the current selection, or select the first available
-            if (selectedRoommates.has(currentValue)) {
-                paidBy.value = currentValue;
-            } else if (selectedRoommates.size > 0) {
+
+            // If current value is not in selected roommates, select the first available
+            if (!selectedRoommates.has(currentValue) && selectedRoommates.size > 0) {
                 paidBy.value = Array.from(selectedRoommates)[0];
             }
         }
@@ -207,6 +233,12 @@ document.addEventListener('DOMContentLoaded', function() {
                 if (tag) {
                     const id = tag.dataset.id;
                     toggleRoommateSelection(id);
+                    
+                    // Add visual feedback
+                    tag.style.transform = 'scale(0.95)';
+                    setTimeout(() => {
+                        tag.style.transform = '';
+                    }, 150);
                 }
             });
         }
@@ -217,6 +249,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 ROOMMATE_IDS.forEach(id => selectedRoommates.add(id));
                 document.querySelectorAll('.roommate-tag').forEach(tag => {
                     tag.classList.add('selected');
+                    const checkmark = tag.querySelector('.tag-checkmark');
+                    if (checkmark) checkmark.textContent = '✓';
                 });
                 updateSelectedCount();
                 updatePaidByOptions();
@@ -229,6 +263,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 selectedRoommates.clear();
                 document.querySelectorAll('.roommate-tag').forEach(tag => {
                     tag.classList.remove('selected');
+                    const checkmark = tag.querySelector('.tag-checkmark');
+                    if (checkmark) checkmark.textContent = '✗';
                 });
                 updateSelectedCount();
                 updatePaidByOptions();
@@ -272,7 +308,7 @@ document.addEventListener('DOMContentLoaded', function() {
             if (e.key === 'Enter') addPersonalDebt();
         });
 
-        // Auto-select the payer when typing expense name
+        // Auto-select all roommates when focusing on expense form
         expenseName.addEventListener('focus', () => {
             if (selectedRoommates.size === 0) {
                 ROOMMATE_IDS.forEach(id => selectedRoommates.add(id));
@@ -444,7 +480,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
             // Create included persons badges
             const includedBadges = (expense.includedPersons || ROOMMATE_IDS)
-                .map(id => `<span class="included-badge">${ROOMMATES[id].charAt(0)}</span>`)
+                .map(id => `<span class="included-badge" style="background-color: ${getPersonColor(id)}">${ROOMMATES[id].charAt(0)}</span>`)
                 .join('');
 
             expenseItem.innerHTML = `
@@ -458,13 +494,11 @@ document.addEventListener('DOMContentLoaded', function() {
                         <span>•</span>
                         <span>${expense.type}</span>
                         <span>•</span>
-                        <span>Paid by ${expense.paidByName}</span>
-                        <span>•</span>
-                        <span>${expense.includedPersons ? expense.includedPersons.length : 7} people</span>
+                        <span>Paid by <strong>${expense.paidByName}</strong></span>
                     </div>
                     <div class="expense-share-row">
                         <div class="expense-share">$${expense.sharePerPerson ? expense.sharePerPerson.toFixed(2) : (expense.amount / 7).toFixed(2)} each</div>
-                        <div class="expense-split-note">Split ${expense.includedPersons ? 'among selected' : 'equally'}</div>
+                        <div class="expense-split-note">Split among ${expense.includedPersons ? expense.includedPersons.length : '7'} people</div>
                     </div>
                 </div>
                 <div class="expense-amount-container">
@@ -504,8 +538,8 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
 
-        if (!description) {
-            alert('Please enter a description');
+        if (!description || description.length < 2) {
+            alert('Please enter a valid description (at least 2 characters)');
             debtDescription.focus();
             return;
         }
@@ -556,7 +590,7 @@ document.addEventListener('DOMContentLoaded', function() {
         showAutoSaveIndicator('Personal debt added successfully!');
 
         // Add to activity feed
-        addActivity(`Added personal debt: ${ROOMMATES[from]} owes ${ROOMMATES[to]} $${amount.toFixed(2)}`);
+        addActivity(`${ROOMMATES[from]} owes ${ROOMMATES[to]} $${amount.toFixed(2)}`);
 
         // Emit to server if real-time is active
         if (window.realTime && window.realTime.socket && window.realTime.isConnected) {
@@ -609,8 +643,8 @@ document.addEventListener('DOMContentLoaded', function() {
                     <div class="debt-meta">
                         <span>${formattedDate}</span>
                         <span>•</span>
-                        <span><span class="debtor">${debt.fromName}</span> → <span class="creditor">${debt.toName}</span></span>
-                        ${debt.notes ? '<span>•</span><span class="debt-notes">Note: ' + debt.notes + '</span>' : ''}
+                        <span><span class="debtor" style="color: ${getPersonColor(debt.from)}">${debt.fromName}</span> → <span class="creditor" style="color: ${getPersonColor(debt.to)}">${debt.toName}</span></span>
+                        ${debt.notes ? '<span>•</span><span class="debt-notes">' + debt.notes + '</span>' : ''}
                     </div>
                 </div>
                 <div class="debt-amount-container">
@@ -657,10 +691,10 @@ document.addEventListener('DOMContentLoaded', function() {
         sharedExpenses.forEach(expense => {
             const amount = expense.amount;
             const paidBy = expense.paidBy;
-            
+
             // Get included persons for this expense (default to all if not specified)
             const includedPersons = expense.includedPersons || ROOMMATE_IDS;
-            
+
             // Calculate share per person for this specific expense
             const sharePerPerson = amount / includedPersons.length;
 
@@ -709,7 +743,7 @@ document.addEventListener('DOMContentLoaded', function() {
             const sharePerPerson = expense.amount / includedPersons.length;
             totalShareAmount += sharePerPerson * (includedPersons.length / ROOMMATE_IDS.length);
         });
-        
+
         const sharePerPerson = sharedExpenses.length > 0 ? totalShareAmount : 0;
 
         // Update UI
@@ -847,9 +881,9 @@ document.addEventListener('DOMContentLoaded', function() {
             const listItem = document.createElement('li');
             listItem.innerHTML = `
                 <i class="fas fa-arrow-right"></i>
-                <strong>${settlement.fromName}</strong> should pay
-                <strong>${settlement.toName}</strong>
-                <strong>$${settlement.amount.toFixed(2)}</strong>
+                <strong style="color: ${getPersonColor(settlement.from)}">${settlement.fromName}</strong> should pay
+                <strong style="color: ${getPersonColor(settlement.to)}">${settlement.toName}</strong>
+                <strong class="settlement-amount">$${settlement.amount.toFixed(2)}</strong>
             `;
             settlementList.appendChild(listItem);
         });
@@ -881,14 +915,14 @@ document.addEventListener('DOMContentLoaded', function() {
 
         // Header row with names
         ROOMMATE_IDS.forEach(id => {
-            tableHTML += `<th>${ROOMMATES[id]}</th>`;
+            tableHTML += `<th style="color: ${getPersonColor(id)}">${ROOMMATES[id]}</th>`;
         });
 
         tableHTML += '</tr></thead><tbody>';
 
         // Create matrix rows
         ROOMMATE_IDS.forEach(fromId => {
-            tableHTML += `<tr><th>${ROOMMATES[fromId]}</th>`;
+            tableHTML += `<tr><th style="color: ${getPersonColor(fromId)}">${ROOMMATES[fromId]}</th>`;
 
             ROOMMATE_IDS.forEach(toId => {
                 if (fromId === toId) {
