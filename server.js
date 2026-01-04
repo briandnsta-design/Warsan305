@@ -3,13 +3,37 @@ const express = require('express');
 const http = require('http');
 const socketIo = require('socket.io');
 const path = require('path');
+const cors = require('cors');
 
 const app = express();
 const server = http.createServer(app);
-const io = socketIo(server);
+
+// IMPORTANT: Configure CORS for your Render URL
+const io = socketIo(server, {
+  cors: {
+    origin: [
+      "https://warsan305.onrender.com",
+      "http://localhost:3000",
+      "http://localhost:8080",
+      "http://127.0.0.1:3000",
+      "http://127.0.0.1:8080"
+    ],
+    methods: ["GET", "POST"],
+    credentials: true,
+    transports: ['websocket', 'polling']
+  },
+  allowEIO3: true,
+  pingTimeout: 60000,
+  pingInterval: 25000,
+  cookie: false
+});
 
 // Serve static files from the current directory
 app.use(express.static(path.join(__dirname)));
+app.use(cors({
+  origin: ["https://warsan305.onrender.com", "http://localhost:3000"],
+  credentials: true
+}));
 
 // Store room data
 const rooms = {
@@ -40,38 +64,42 @@ function getUserColor(userName) {
 function addActivity(roomId, type, message, userName) {
     const room = rooms[roomId];
     if (room) {
-        room.activityLog.push({
+        const activity = {
             type: type,
             message: message,
             time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-            user: userName
-        });
+            user: userName || 'System',
+            timestamp: new Date().toISOString()
+        };
+        
+        room.activityLog.push(activity);
 
-        // Keep only last 20 activities
-        if (room.activityLog.length > 20) {
+        // Keep only last 50 activities
+        if (room.activityLog.length > 50) {
             room.activityLog.shift();
         }
+        
+        return activity;
     }
+    return null;
 }
 
 // Handle Socket.IO connections
 io.on('connection', (socket) => {
-    console.log('A user connected:', socket.id);
+    console.log('🔗 New user connected:', socket.id);
+
+    // Ping-pong for connection testing
+    socket.on('ping', () => {
+        socket.emit('pong', Date.now());
+    });
 
     socket.on('join-room', (data) => {
         const { roomId, userName } = data;
-        console.log(`${userName} joined room: ${roomId}`);
+        console.log(`👤 ${userName} (${socket.id}) joined room: ${roomId}`);
 
         socket.join(roomId);
 
-        // Add user to room
-        const user = {
-            id: socket.id,
-            name: userName,
-            color: getUserColor(userName),
-            isTyping: false
-        };
-
+        // Initialize room if it doesn't exist
         if (!rooms[roomId]) {
             rooms[roomId] = {
                 expenses: [],
@@ -79,28 +107,52 @@ io.on('connection', (socket) => {
                 users: [],
                 activityLog: []
             };
+            console.log(`🏠 Created new room: ${roomId}`);
         }
 
-        rooms[roomId].users.push(user);
+        const room = rooms[roomId];
+
+        // Remove user if already exists (reconnection)
+        room.users = room.users.filter(u => u.id !== socket.id);
+
+        // Add user to room
+        const user = {
+            id: socket.id,
+            name: userName,
+            color: getUserColor(userName),
+            isTyping: false,
+            joinedAt: new Date().toISOString()
+        };
+
+        room.users.push(user);
 
         // Send current room data to the new user
         socket.emit('room-data', {
-            expenses: rooms[roomId].expenses,
-            personalDebts: rooms[roomId].personalDebts,
-            users: rooms[roomId].users.filter(u => u.id !== socket.id),
-            activityLog: rooms[roomId].activityLog
+            expenses: room.expenses,
+            personalDebts: room.personalDebts,
+            users: room.users.filter(u => u.id !== socket.id),
+            activityLog: room.activityLog.slice(-10), // Last 10 activities
+            roomInfo: {
+                id: roomId,
+                userCount: room.users.length,
+                expenseCount: room.expenses.length,
+                debtCount: room.personalDebts.length
+            }
         });
 
         // Notify other users
         socket.to(roomId).emit('user-joined', user);
+        
+        // Update user list for all
+        io.to(roomId).emit('update-users', room.users.filter(u => u.id !== socket.id));
 
         // Add to activity log
-        addActivity(roomId, 'join', `${userName} joined the room`, userName);
-        io.to(roomId).emit('new-activity', {
-            type: 'join',
-            message: `${userName} joined the room`,
-            time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-        });
+        const activity = addActivity(roomId, 'join', `${userName} joined the room`, userName);
+        if (activity) {
+            io.to(roomId).emit('new-activity', activity);
+        }
+        
+        console.log(`📊 Room ${roomId} now has ${room.users.length} users`);
     });
 
     socket.on('typing', (data) => {
@@ -117,6 +169,7 @@ io.on('connection', (socket) => {
             // Broadcast to other users
             socket.to(roomId).emit('user-typing', {
                 userId: socket.id,
+                userName: userName,
                 isTyping: isTyping
             });
         }
@@ -127,22 +180,41 @@ io.on('connection', (socket) => {
         const room = rooms[roomId];
 
         if (room) {
-            // Add expense to room
-            room.expenses.push(expense);
+            // Ensure expense has an ID
+            if (!expense.id) {
+                expense.id = Date.now();
+            }
+            
+            // Add timestamp if not present
+            if (!expense.createdAt) {
+                expense.createdAt = new Date().toISOString();
+            }
+            
+            // Add expense to room (at beginning)
+            room.expenses.unshift(expense);
+            
+            // Keep only last 100 expenses
+            if (room.expenses.length > 100) {
+                room.expenses.pop();
+            }
 
-            // Broadcast to all users in the room
+            // Broadcast to all users in the room (including sender)
             io.to(roomId).emit('expense-added', {
                 expense: expense,
-                addedBy: userName
+                addedBy: userName,
+                timestamp: new Date().toISOString()
             });
 
             // Add to activity log
-            addActivity(roomId, 'expense', `${userName} added expense: ${expense.name} ($${expense.amount.toFixed(2)})`, userName);
-            io.to(roomId).emit('new-activity', {
-                type: 'expense',
-                message: `${userName} added expense: ${expense.name}`,
-                time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-            });
+            const activity = addActivity(roomId, 'expense', 
+                `${userName} added expense: ${expense.name} ($${expense.amount.toFixed(2)})`, 
+                userName
+            );
+            if (activity) {
+                io.to(roomId).emit('new-activity', activity);
+            }
+            
+            console.log(`💰 Expense added to ${roomId} by ${userName}: ${expense.name} ($${expense.amount})`);
         }
     });
 
@@ -151,22 +223,46 @@ io.on('connection', (socket) => {
         const room = rooms[roomId];
 
         if (room) {
-            // Add debt to room
-            room.personalDebts.push(debt);
+            // Ensure debt has an ID
+            if (!debt.id) {
+                debt.id = Date.now();
+            }
+            
+            // Add timestamp if not present
+            if (!debt.createdAt) {
+                debt.createdAt = new Date().toISOString();
+            }
+            
+            // Set default status
+            if (!debt.status) {
+                debt.status = 'pending';
+            }
+            
+            // Add debt to room (at beginning)
+            room.personalDebts.unshift(debt);
+            
+            // Keep only last 100 debts
+            if (room.personalDebts.length > 100) {
+                room.personalDebts.pop();
+            }
 
             // Broadcast to all users in the room
             io.to(roomId).emit('debt-added', {
                 debt: debt,
-                addedBy: userName
+                addedBy: userName,
+                timestamp: new Date().toISOString()
             });
 
             // Add to activity log
-            addActivity(roomId, 'debt', `${userName} added debt: ${debt.description} ($${debt.amount.toFixed(2)})`, userName);
-            io.to(roomId).emit('new-activity', {
-                type: 'debt',
-                message: `${userName} added debt: ${debt.description}`,
-                time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-            });
+            const activity = addActivity(roomId, 'debt', 
+                `${userName} added debt: ${debt.description} ($${debt.amount.toFixed(2)})`, 
+                userName
+            );
+            if (activity) {
+                io.to(roomId).emit('new-activity', activity);
+            }
+            
+            console.log(`💳 Debt added to ${roomId} by ${userName}: ${debt.description} ($${debt.amount})`);
         }
     });
 
@@ -175,9 +271,15 @@ io.on('connection', (socket) => {
         const room = rooms[roomId];
 
         if (room) {
+            let itemName = 'item';
+            
             if (itemType === 'expense') {
+                const expense = room.expenses.find(e => e.id === itemId);
+                itemName = expense ? expense.name : 'expense';
                 room.expenses = room.expenses.filter(e => e.id !== itemId);
             } else if (itemType === 'debt') {
+                const debt = room.personalDebts.find(d => d.id === itemId);
+                itemName = debt ? debt.description : 'debt';
                 room.personalDebts = room.personalDebts.filter(d => d.id !== itemId);
             }
 
@@ -185,16 +287,20 @@ io.on('connection', (socket) => {
             io.to(roomId).emit('item-deleted', {
                 itemId: itemId,
                 itemType: itemType,
-                deletedBy: userName
+                deletedBy: userName,
+                timestamp: new Date().toISOString()
             });
 
             // Add to activity log
-            addActivity(roomId, 'delete', `${userName} deleted a ${itemType}`, userName);
-            io.to(roomId).emit('new-activity', {
-                type: 'delete',
-                message: `${userName} deleted a ${itemType}`,
-                time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-            });
+            const activity = addActivity(roomId, 'delete', 
+                `${userName} deleted a ${itemType}: ${itemName}`, 
+                userName
+            );
+            if (activity) {
+                io.to(roomId).emit('new-activity', activity);
+            }
+            
+            console.log(`🗑️ ${itemType} deleted from ${roomId} by ${userName}: ${itemName}`);
         }
     });
 
@@ -207,40 +313,53 @@ io.on('connection', (socket) => {
             if (debt) {
                 debt.status = 'settled';
                 debt.settledAt = new Date().toISOString();
+                debt.settledBy = userName;
 
                 // Broadcast to all users in the room
                 io.to(roomId).emit('debt-settled', {
                     debtId: debtId,
-                    settledBy: userName
+                    settledBy: userName,
+                    timestamp: new Date().toISOString(),
+                    debt: debt
                 });
 
                 // Add to activity log
-                addActivity(roomId, 'settle', `${userName} settled a debt of $${debt.amount.toFixed(2)}`, userName);
-                io.to(roomId).emit('new-activity', {
-                    type: 'settle',
-                    message: `${userName} settled a debt`,
-                    time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-                });
+                const activity = addActivity(roomId, 'settle', 
+                    `${userName} settled debt: ${debt.description} ($${debt.amount.toFixed(2)})`, 
+                    userName
+                );
+                if (activity) {
+                    io.to(roomId).emit('new-activity', activity);
+                }
+                
+                console.log(`✅ Debt settled in ${roomId} by ${userName}: ${debt.description}`);
             }
         }
     });
 
     socket.on('calculate-settlements', (data) => {
         const { roomId, settlements, userName } = data;
+        const room = rooms[roomId];
 
-        // Broadcast settlements to all users in the room
-        io.to(roomId).emit('settlements-calculated', {
-            settlements: settlements,
-            calculatedBy: userName
-        });
+        if (room) {
+            // Broadcast settlements to all users in the room
+            io.to(roomId).emit('settlements-calculated', {
+                settlements: settlements,
+                calculatedBy: userName,
+                timestamp: new Date().toISOString()
+            });
 
-        // Add to activity log
-        addActivity(roomId, 'calculate', `${userName} calculated settlements`, userName);
-        io.to(roomId).emit('new-activity', {
-            type: 'calculate',
-            message: `${userName} calculated settlements`,
-            time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-        });
+            // Add to activity log
+            const activity = addActivity(roomId, 'calculate', 
+                `${userName} calculated settlements`, 
+                userName
+            );
+            if (activity) {
+                io.to(roomId).emit('new-activity', activity);
+            }
+            
+            console.log(`🧮 Settlements calculated in ${roomId} by ${userName}`);
+        }
     });
 
     socket.on('reset-data', (data) => {
@@ -254,21 +373,25 @@ io.on('connection', (socket) => {
 
             // Broadcast to all users in the room
             io.to(roomId).emit('data-reset', {
-                resetBy: userName
+                resetBy: userName,
+                timestamp: new Date().toISOString()
             });
 
             // Add to activity log
-            addActivity(roomId, 'reset', `${userName} reset all data`, userName);
-            io.to(roomId).emit('new-activity', {
-                type: 'reset',
-                message: `${userName} reset all data`,
-                time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-            });
+            const activity = addActivity(roomId, 'reset', 
+                `${userName} reset all data`, 
+                userName
+            );
+            if (activity) {
+                io.to(roomId).emit('new-activity', activity);
+            }
+            
+            console.log(`🔄 Data reset in ${roomId} by ${userName}`);
         }
     });
 
-    socket.on('disconnect', () => {
-        console.log('User disconnected:', socket.id);
+    socket.on('disconnect', (reason) => {
+        console.log(`👋 User disconnected: ${socket.id}, Reason: ${reason}`);
 
         // Remove user from all rooms
         for (const roomId in rooms) {
@@ -280,31 +403,92 @@ io.on('connection', (socket) => {
                 room.users.splice(userIndex, 1);
 
                 // Notify other users in the room
-                io.to(roomId).emit('user-left', {
+                socket.to(roomId).emit('user-left', {
                     userId: socket.id,
-                    userName: userName
+                    userName: userName,
+                    reason: reason
                 });
+                
+                // Update user list for all
+                io.to(roomId).emit('update-users', room.users);
 
                 // Add to activity log
-                addActivity(roomId, 'leave', `${userName} left the room`, 'System');
-                io.to(roomId).emit('new-activity', {
-                    type: 'leave',
-                    message: `${userName} left the room`,
-                    time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-                });
+                const activity = addActivity(roomId, 'leave', 
+                    `${userName} left the room`, 
+                    'System'
+                );
+                if (activity) {
+                    io.to(roomId).emit('new-activity', activity);
+                }
+                
+                console.log(`📉 Room ${roomId} now has ${room.users.length} users`);
             }
         }
     });
+
+    // Error handling
+    socket.on('error', (error) => {
+        console.error(`❌ Socket error for ${socket.id}:`, error);
+    });
 });
 
-// Serve the main HTML file
+// Health check endpoint
+app.get('/health', (req, res) => {
+    res.status(200).json({
+        status: 'ok',
+        timestamp: new Date().toISOString(),
+        rooms: Object.keys(rooms).length,
+        roomData: Object.keys(rooms).map(roomId => ({
+            roomId: roomId,
+            users: rooms[roomId].users.length,
+            expenses: rooms[roomId].expenses.length,
+            debts: rooms[roomId].personalDebts.length
+        }))
+    });
+});
+
+// Room info endpoint
+app.get('/api/room/:roomId', (req, res) => {
+    const roomId = req.params.roomId;
+    const room = rooms[roomId];
+    
+    if (room) {
+        res.json({
+            roomId: roomId,
+            userCount: room.users.length,
+            expenseCount: room.expenses.length,
+            debtCount: room.personalDebts.length,
+            users: room.users.map(u => ({ name: u.name, color: u.color })),
+            lastActivity: room.activityLog[room.activityLog.length - 1]
+        });
+    } else {
+        res.status(404).json({ error: 'Room not found' });
+    }
+});
+
+// Serve the main HTML file for all other routes
 app.get('*', (req, res) => {
     res.sendFile(path.join(__dirname, 'index.html'));
 });
 
+// Use Render's PORT environment variable
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
-    console.log(`Open http://localhost:${PORT} in your browser`);
-    console.log('For real-time collaboration, open the same URL in multiple browsers');
+server.listen(PORT, '0.0.0.0', () => {
+    console.log(`🚀 Server running on port ${PORT}`);
+    console.log(`🌐 Access at: http://localhost:${PORT}`);
+    console.log(`🌍 Your Render URL: https://warsan305.onrender.com`);
+    console.log(`📊 Health check: https://warsan305.onrender.com/health`);
+    console.log('🔌 Socket.IO server ready for connections');
 });
+
+// Handle graceful shutdown
+process.on('SIGTERM', () => {
+    console.log('🛑 SIGTERM received. Shutting down gracefully...');
+    server.close(() => {
+        console.log('✅ Server closed');
+        process.exit(0);
+    });
+});
+
+// Export for testing
+module.exports = { app, server, io, rooms };
